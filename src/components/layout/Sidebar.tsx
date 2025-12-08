@@ -51,6 +51,9 @@ const menuItems: MenuItem[] = [
   { icon: Bell, label: 'Notifications', path: '/notifications', roles: ['developer', 'admin', 'manager', 'employee'] },
   { icon: Shield, label: 'Security', path: '/security', roles: ['developer', 'admin'] },
   { icon: Settings, label: 'Settings', path: '/settings', roles: ['developer', 'admin', 'manager', 'employee'] },
+
+  // NEW: Whiteboard (visible to all roles)
+  { icon: FileText, label: 'Whiteboard', path: '/whiteboard', roles: ['developer', 'admin', 'manager', 'employee'] },
 ];
 
 interface SidebarProps {
@@ -114,7 +117,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ isDarkMode, toggleDarkMode }) 
       <nav className="flex-1 overflow-y-auto py-4 px-3 scrollbar-thin">
         <ul className="space-y-1">
           {filteredMenuItems.map((item) => {
-            const isActive = location.pathname === item.path;
+            // Improved active detection: treat as active if the current path starts with item.path.
+            // This makes /whiteboard/123 activate /whiteboard
+            const isActive =
+              item.path === '/'
+                ? location.pathname === '/'
+                : location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+
             const Icon = item.icon;
 
             return (

@@ -11,6 +11,8 @@ SECRET_KEY = config('SECRET_KEY', default='your-secret-key-change-in-production'
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
 
+ASGI_APPLICATION = "workos.asgi.application"  # adjust to your project's asgi module
+
 # CORS
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -25,6 +27,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "whiteboard",
+    "channels",
+
     
     # Third party
     'rest_framework',
@@ -164,5 +169,15 @@ LOGGING = {
     'root': {
         'handlers': ['console'],
         'level': 'INFO',
+    },
+}
+
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],  # Redis host:port
+        },
     },
 }

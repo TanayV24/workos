@@ -1,3 +1,4 @@
+// src/App.tsx
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,6 +16,9 @@ import Leave from "./pages/Leave";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Index from "./pages/Index";
+
+// NEW: import the Whiteboard page
+import WhiteboardPage from "./pages/Whiteboard";
 
 const queryClient = new QueryClient();
 
@@ -105,6 +109,24 @@ const AppRoutes = () => {
           }
         />
 
+        {/* NEW: Whiteboard routes */}
+        <Route
+          path="/whiteboard"
+          element={
+            <ProtectedRoute>
+              <WhiteboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/whiteboard/:id"
+          element={
+            <ProtectedRoute>
+              <WhiteboardPage />
+            </ProtectedRoute>
+          }
+        />
+
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<NotFound />} />
@@ -166,6 +188,24 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Settings />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* NEW: Allow authenticated users to reach whiteboard even when on public (if they later login) */}
+      <Route
+        path="/whiteboard"
+        element={
+          <ProtectedRoute>
+            <WhiteboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/whiteboard/:id"
+        element={
+          <ProtectedRoute>
+            <WhiteboardPage />
           </ProtectedRoute>
         }
       />
