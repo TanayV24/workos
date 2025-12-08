@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import DeveloperDashboard from "./pages/DeveloperDashboard";
 import Employees from "./pages/Employees";
 import Attendance from "./pages/Attendance";
 import Tasks from "./pages/Tasks";
@@ -30,8 +31,13 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const DashboardRouter: React.FC = () => {
   const { user } = useAuth();
   
-  // Admin and Developer roles get the Admin Dashboard
-  if (user?.role === 'admin' || user?.role === 'developer') {
+  // Developer gets the Developer Dashboard (platform-level admin)
+  if (user?.role === 'developer') {
+    return <DeveloperDashboard />;
+  }
+  
+  // Admin gets the Admin Dashboard (company-level admin)
+  if (user?.role === 'admin') {
     return <AdminDashboard />;
   }
   
