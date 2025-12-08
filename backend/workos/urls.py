@@ -1,11 +1,19 @@
+# workos/urls.py
+
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework.routers import DefaultRouter
+from companies.views import CompanyViewSet, AuthViewSet, AdminDashboardViewSet
+
+# Create router
+router = DefaultRouter()
+
+# Register viewsets
+router.register(r'companies', CompanyViewSet, basename='companies')
+router.register(r'auth', AuthViewSet, basename='auth')
+router.register(r'admin', AdminDashboardViewSet, basename='admin')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/v1/companies/', include('companies.urls')),
-    path('api/v1/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/v1/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path("", include("whiteboard.urls")),
+    path('api/', include(router.urls)),
 ]

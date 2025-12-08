@@ -1,10 +1,17 @@
+# companies/urls.py
+
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CompanyViewSet
+from .views import CompanyViewSet, AuthViewSet, AdminDashboardViewSet
 
+# Create router
 router = DefaultRouter()
-router.register(r'', CompanyViewSet, basename='company')
+
+# Register viewsets
+router.register(r'companies', CompanyViewSet, basename='companies')
+router.register(r'auth', AuthViewSet, basename='auth')
+router.register(r'admin', AdminDashboardViewSet, basename='admin')
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path('api/', include(router.urls)),
 ]

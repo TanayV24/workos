@@ -1,88 +1,135 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { User, UserRole } from '@/types/workos';
+// src/contexts/AuthContext.tsx
+
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  ReactNode,
+} from 'react';
+
+export type UserRole = 'developer' | 'admin' | 'manager' | 'employee';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  avatar: string;
+  department: string;
+  designation: string;
+  status: 'active' | 'inactive';
+  company_id?: string;
+  company_name?: string;
+  full_name?: string;
+  personal_email?: string;
+  temp_password?: boolean;
+  verified?: boolean;
+}
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  accessToken: string | null;
+  refreshToken: string | null;
   login: (email: string, password: string, role: UserRole) => Promise<void>;
   logout: () => void;
   switchRole: (role: UserRole) => void;
+  updateUserData: (userData: Partial<User>) => void;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const mockUsers: Record<UserRole, User> = {
-  developer: {
-    id: 'dev-001',
-    name: 'Alex Developer',
-    email: 'alex@workos.dev',
-    role: 'developer',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex',
-    department: 'Engineering',
-    designation: 'Platform Admin',
-    status: 'active',
-  },
-  admin: {
-    id: 'admin-001',
-    name: 'Sarah Admin',
-    email: 'sarah@company.com',
-    role: 'admin',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah',
-    department: 'Administration',
-    designation: 'HR Director',
-    status: 'active',
-  },
-  manager: {
-    id: 'mgr-001',
-    name: 'Michael Manager',
-    email: 'michael@company.com',
-    role: 'manager',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Michael',
-    department: 'Operations',
-    designation: 'Team Lead',
-    status: 'active',
-  },
-  employee: {
-    id: 'emp-001',
-    name: 'Emma Employee',
-    email: 'emma@company.com',
-    role: 'employee',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emma',
-    department: 'Marketing',
-    designation: 'Marketing Executive',
-    status: 'active',
-  },
-};
+interface AuthProviderProps {
+  children: ReactNode;
+}
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(
+    localStorage.getItem('access_token')
+  );
+  const [refreshToken, setRefreshToken] = useState<string | null>(
+    localStorage.getItem('refresh_token')
+  );
+  const [isLoading, setIsLoading] = useState(false);
 
-  const login = useCallback(async (email: string, password: string, role: UserRole) => {
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setUser(mockUsers[role]);
-  }, []);
+  // On mount, check if user is already logged in
+  React.useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser && accessToken) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (error) {
+        console.error('Failed to parse stored user:', error);
+        localStorage.removeItem('user');
+      }
+    }
+  }, [accessToken]);
+
+  const login = useCallback(
+    async (email: string, password: string, role: UserRole) => {
+      setIsLoading(true);
+      try {
+        // Backend call is handled in Login.tsx
+        // This function is called after successful login
+        const storedUser = localStorage.getItem('user');
+        const storedAccessToken = localStorage.getItem('access_token');
+        const storedRefreshToken = localStorage.getItem('refresh_token');
+
+        if (storedUser && storedAccessToken) {
+          setUser(JSON.parse(storedUser));
+          setAccessToken(storedAccessToken);
+          setRefreshToken(storedRefreshToken);
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
 
   const logout = useCallback(() => {
     setUser(null);
+    setAccessToken(null);
+    setRefreshToken(null);
+    localStorage.removeItem('user');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
   }, []);
 
   const switchRole = useCallback((role: UserRole) => {
-    setUser(mockUsers[role]);
-  }, []);
+    if (user) {
+      setUser({ ...user, role });
+    }
+  }, [user]);
+
+  const updateUserData = useCallback((userData: Partial<User>) => {
+    if (user) {
+      const updatedUser = { ...user, ...userData };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+    }
+  }, [user]);
+
+  const value: AuthContextType = {
+    user,
+    isAuthenticated: !!user && !!accessToken,
+    accessToken,
+    refreshToken,
+    login,
+    logout,
+    switchRole,
+    updateUserData,
+    isLoading,
+  };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: !!user,
-        login,
-        logout,
-        switchRole,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 };
 

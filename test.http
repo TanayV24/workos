@@ -1,0 +1,50 @@
+### Register Company
+POST http://localhost:8000/api/companies/register/
+Content-Type: application/json
+
+{
+  "name": "Test Company1",
+  "email": "contac1t@testco.com",
+  "phone": "+91-98716543210",
+  "city": "Bangalore",
+  "state": "Karnataka",
+  "country": "India",
+  "timezone": "Asia/Kolkata",
+  "currency": "INR"
+}
+
+### Create Admin (Replace company_id)
+POST http://localhost:8000/api/auth/create_admin/
+Content-Type: application/json
+
+{
+  "company_id": "46539681-82f5-494c-a467-2ef8856019b1",
+  "full_name": "Rajesh Kumar",
+  "personal_email": "vakhariatanay@gmail.com",
+  "phone": "+91-9876543200"
+}
+
+### Login (Replace password with temp password from email)
+POST http://localhost:8000/api/auth/login/
+Content-Type: application/json
+
+{
+  "email": "admin@test_company.com",
+  "password": "sb7qz93RZmL4U3AK",
+  "role": "admin"
+}
+
+### Get Dashboard (Replace token)
+GET http://localhost:8000/api/admin/dashboard/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1Mjc3MTEzLCJpYXQiOjE3NjUxOTA3MTMsImp0aSI6ImY5YTNiYjExYTRiNDQ5Y2ZhZTA2ZDgyNmQ4M2YyYzE5IiwidXNlcl9pZCI6Mn0.HaygFxXZUBIrJNWiIL257t5VY_P27qvxeqPVu_q9ysE
+
+### Change Password (Replace token and passwords)
+POST http://localhost:8000/api/auth/change_temp_password/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY1Mjc3MTEzLCJpYXQiOjE3NjUxOTA3MTMsImp0aSI6ImY5YTNiYjExYTRiNDQ5Y2ZhZTA2ZDgyNmQ4M2YyYzE5IiwidXNlcl9pZCI6Mn0.HaygFxXZUBIrJNWiIL257t5VY_P27qvxeqPVu_q9ysE
+Content-Type: application/json
+
+{
+  "old_password": "sb7qz93RZmL4U3AK",
+  "new_password": "MyNewSecure@Pass123",
+  "confirm_password": "MyNewSecure@Pass123"
+}
