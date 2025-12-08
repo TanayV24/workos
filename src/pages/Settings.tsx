@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// src/pages/Settings.tsx
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,8 +23,49 @@ import {
   Save,
 } from 'lucide-react';
 
+// Theme (optional - guard if provider missing)
+import type { ThemeChoice } from "@/contexts/ThemeContext";
+import { useTheme } from "@/contexts/ThemeContext";
+
 const Settings: React.FC = () => {
   const { user } = useAuth();
+
+  // --- Theme hookup (defensive) ---
+  // `useTheme()` will throw if the ThemeProvider is not mounted.
+  // So we call it inside try/catch. If it fails, we fall back to defaults.
+  let themeCtx: {
+    choice?: ThemeChoice;
+    setChoice?: (c: ThemeChoice) => void;
+    isDark?: boolean;
+  } = {};
+  try {
+    // If ThemeProvider exists this returns the real context
+    themeCtx = useTheme();
+  } catch (err) {
+    // ThemeProvider not present or import path incorrect — we'll degrade gracefully.
+    themeCtx = { choice: "system", setChoice: () => {}, isDark: false };
+  }
+
+  const initialThemeChoice: ThemeChoice = (themeCtx.choice as ThemeChoice) || "system";
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(initialThemeChoice);
+  const [mounted, setMounted] = useState(false);
+
+  // After mount, sync to context (this avoids SSR / document issues and ensures no crash)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    // Only call context setter if available
+    if (!mounted) return;
+    if (themeCtx.setChoice) themeCtx.setChoice(themeChoice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeChoice, mounted]);
+
+  // Use the context's isDark if available
+  const themeIsDark = !!themeCtx.isDark;
+
+  // --- Profile & Notifications state (unchanged behaviour) ---
   const [profileData, setProfileData] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -359,16 +401,21 @@ const Settings: React.FC = () => {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Color Scheme</Label>
-                  <Select defaultValue="system">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="light">Light</SelectItem>
-                      <SelectItem value="dark">Dark</SelectItem>
-                      <SelectItem value="system">System</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {/* render the Select only after mount to avoid any SSR/undefined issues */}
+                  {mounted ? (
+                    <Select value={themeChoice} onValueChange={(v) => setThemeChoice(v as ThemeChoice)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="light">Light</SelectItem>
+                        <SelectItem value="dark">Dark</SelectItem>
+                        <SelectItem value="system">System</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Loading…</div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Language</Label>
@@ -397,6 +444,9 @@ const Settings: React.FC = () => {
                       <SelectItem value="utc+5.5">India Standard Time (UTC+5:30)</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="mt-2 text-sm text-muted-foreground">
+                  Current effective theme: <strong className="ml-2">{themeIsDark ? "Dark" : "Light"}</strong>
                 </div>
               </CardContent>
             </Card>

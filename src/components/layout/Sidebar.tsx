@@ -1,3 +1,4 @@
+// src/components/layout/Sidebar.tsx
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { NavLink, useLocation } from 'react-router-dom';
@@ -22,8 +23,6 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  Moon,
-  Sun,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -50,18 +49,14 @@ const menuItems: MenuItem[] = [
   { icon: Link2, label: 'Integrations', path: '/integrations', roles: ['developer', 'admin'] },
   { icon: Bell, label: 'Notifications', path: '/notifications', roles: ['developer', 'admin', 'manager', 'employee'] },
   { icon: Shield, label: 'Security', path: '/security', roles: ['developer', 'admin'] },
-  { icon: Settings, label: 'Settings', path: '/settings', roles: ['developer', 'admin', 'manager', 'employee'] },
 
-  // NEW: Whiteboard (visible to all roles)
+  // Whiteboard stays in main nav (so it's above the bottom pinned settings)
   { icon: FileText, label: 'Whiteboard', path: '/whiteboard', roles: ['developer', 'admin', 'manager', 'employee'] },
 ];
 
-interface SidebarProps {
-  isDarkMode: boolean;
-  toggleDarkMode: () => void;
-}
+interface SidebarProps {}
 
-export const Sidebar: React.FC<SidebarProps> = ({ isDarkMode, toggleDarkMode }) => {
+export const Sidebar: React.FC<SidebarProps> = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -78,6 +73,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isDarkMode, toggleDarkMode }) 
   const itemVariants = {
     expanded: { opacity: 1, x: 0 },
     collapsed: { opacity: 0, x: -10 },
+  };
+
+  // helper to determine active state
+  const isPathActive = (path: string) => {
+    if (path === '/') return location.pathname === '/';
+    return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
   return (
@@ -117,13 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isDarkMode, toggleDarkMode }) 
       <nav className="flex-1 overflow-y-auto py-4 px-3 scrollbar-thin">
         <ul className="space-y-1">
           {filteredMenuItems.map((item) => {
-            // Improved active detection: treat as active if the current path starts with item.path.
-            // This makes /whiteboard/123 activate /whiteboard
-            const isActive =
-              item.path === '/'
-                ? location.pathname === '/'
-                : location.pathname === item.path || location.pathname.startsWith(item.path + '/');
-
+            const isActive = isPathActive(item.path);
             const Icon = item.icon;
 
             return (
@@ -176,36 +171,34 @@ export const Sidebar: React.FC<SidebarProps> = ({ isDarkMode, toggleDarkMode }) 
         </ul>
       </nav>
 
-      {/* User Profile & Actions */}
-      <div className="border-t border-sidebar-border p-3 space-y-3">
-        {/* Theme Toggle */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleDarkMode}
-          className={cn(
-            'w-full justify-start gap-3',
-            isCollapsed && 'justify-center'
-          )}
-        >
-          {isDarkMode ? (
-            <Sun className="h-5 w-5" />
-          ) : (
-            <Moon className="h-5 w-5" />
-          )}
-          <AnimatePresence>
-            {!isCollapsed && (
-              <motion.span
-                variants={itemVariants}
-                initial="collapsed"
-                animate="expanded"
-                exit="collapsed"
-              >
-                {isDarkMode ? 'Light Mode' : 'Dark Mode'}
-              </motion.span>
+      {/* User Profile & Actions (bottom pinned area) */}
+      <div className="border-t border-sidebar-border p-3 space-y-3 mt-auto">
+        {/* Pinned Settings link (always visible at bottom) */}
+        {user && (
+          <NavLink
+            to="/settings"
+            className={cn(
+              'sidebar-item group relative flex items-center gap-3 rounded-md px-2 py-2',
+              isPathActive('/settings') ? 'active' : ''
             )}
-          </AnimatePresence>
-        </Button>
+            aria-label="Settings"
+          >
+            <Settings className={cn('h-5 w-5', isPathActive('/settings') ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
+            <AnimatePresence>
+              {!isCollapsed && (
+                <motion.span
+                  variants={itemVariants}
+                  initial="collapsed"
+                  animate="expanded"
+                  exit="collapsed"
+                  transition={{ duration: 0.2 }}
+                >
+                  Settings
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </NavLink>
+        )}
 
         {/* User Profile */}
         {user && (
