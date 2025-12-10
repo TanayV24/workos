@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     # Local
     'companies.apps.CompaniesConfig',
     'users.apps.UsersConfig',
+    'chat.apps.ChatConfig'
 ]
 
 MIDDLEWARE = [

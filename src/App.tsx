@@ -3,8 +3,15 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+} from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ChatProvider } from "@/contexts/ChatContext";
 import React from "react";
 
 // Theme
@@ -25,22 +32,26 @@ import Settings from "./pages/Settings";
 import WhiteboardPage from "./pages/Whiteboard";
 import NotFound from "./pages/NotFound";
 import Onboarding from "./pages/Onboarding";
+import ChatPage from "./pages/ChatPage";
 
 const queryClient = new QueryClient();
 
 // ============================================
 // PROTECTED ROUTE COMPONENT
 // ============================================
-
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const { isAuthenticated, loading, user } = useAuth();
   const navigate = useNavigate();
 
   React.useEffect(() => {
     if (user) {
-      const needsOnboarding = user.temp_password || user.company_setup_completed === false;
+      const needsOnboarding =
+        user.temp_password || user.company_setup_completed === false;
       const isOnOnboardingPage = window.location.pathname === "/onboarding";
-      const isOnChangePasswordPage = window.location.pathname === "/auth/change-password";
+      const isOnChangePasswordPage =
+        window.location.pathname === "/auth/change-password";
 
       if (needsOnboarding && !isOnOnboardingPage && !isOnChangePasswordPage) {
         navigate("/onboarding", { replace: true });
@@ -50,8 +61,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <p className="text-gray-500">Loading...</p>
+      <div className="flex h-screen items-center justify-center">
+        Loading...
       </div>
     );
   }
@@ -60,59 +71,19 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/login" replace />;
   }
 
-  const needsOnboarding = user?.temp_password || user?.company_setup_completed === false;
-  const isOnOnboardingPage = window.location.pathname === "/onboarding";
-  const isOnChangePasswordPage = window.location.pathname === "/auth/change-password";
-
-  if (needsOnboarding && !isOnOnboardingPage && !isOnChangePasswordPage) {
-    return null;
-  }
-
   return <>{children}</>;
 };
 
 // ============================================
-// MAIN APP COMPONENT
+// APP ROUTES
 // ============================================
-
-function AppContent() {
-  const { isAuthenticated } = useAuth();
-
+const AppRoutes: React.FC = () => {
   return (
     <Routes>
-      {/* Landing at host root */}
-      <Route
-        path="/"
-        element={
-          isAuthenticated ? (
-            <Navigate to="/admin/dashboard" replace />
-          ) : (
-            <Index />
-          )
-        }
-      />
-
-      {/* Login */}
-      <Route
-        path="/login"
-        element={
-          isAuthenticated ? (
-            <Navigate to="/admin/dashboard" replace />
-          ) : (
-            <Login />
-          )
-        }
-      />
-
-      {/* Change Password */}
-      <Route
-        path="/auth/change-password"
-        element={
-          <ProtectedRoute>
-            <ChangePassword />
-          </ProtectedRoute>
-        }
-      />
+      {/* Public routes */}
+      <Route path="/" element={<Index />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/auth/change-password" element={<ChangePassword />} />
 
       {/* Onboarding */}
       <Route
@@ -124,27 +95,7 @@ function AppContent() {
         }
       />
 
-      {/* Admin */}
-      <Route
-        path="/admin/dashboard"
-        element={
-          <ProtectedRoute>
-            <AdminDashboard />
-          </ProtectedRoute>
-        }
-      />
-
-      {/* Developer */}
-      <Route
-        path="/developer/dashboard"
-        element={
-          <ProtectedRoute>
-            <DeveloperDashboard />
-          </ProtectedRoute>
-        }
-      />
-
-      {/* General */}
+      {/* Protected routes */}
       <Route
         path="/dashboard"
         element={
@@ -153,7 +104,22 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/developer"
+        element={
+          <ProtectedRoute>
+            <DeveloperDashboard />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/employees"
         element={
@@ -162,7 +128,6 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
       <Route
         path="/attendance"
         element={
@@ -171,7 +136,6 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
       <Route
         path="/tasks"
         element={
@@ -180,7 +144,6 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
       <Route
         path="/leave"
         element={
@@ -189,7 +152,6 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
       <Route
         path="/settings"
         element={
@@ -198,7 +160,6 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
       <Route
         path="/whiteboard"
         element={
@@ -207,29 +168,43 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+      {/* CHAT ROUTE */}
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* 404 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
-}
+};
 
-function App() {
+// ============================================
+// ROOT APP
+// ============================================
+const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <BrowserRouter>
+      <ThemeProvider>
+        <TooltipProvider>
           <AuthProvider>
-            <ThemeProvider>
-              <AppContent />
+            <BrowserRouter>
+              <ChatProvider>
+                <AppRoutes />
+              </ChatProvider>
               <Toaster />
               <Sonner />
-            </ThemeProvider>
+            </BrowserRouter>
           </AuthProvider>
-        </BrowserRouter>
-      </TooltipProvider>
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
-}
+};
 
 export default App;
