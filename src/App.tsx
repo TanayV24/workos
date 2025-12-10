@@ -20,7 +20,7 @@ import Leave from "./pages/Leave";
 import Settings from "./pages/Settings";
 import WhiteboardPage from "./pages/Whiteboard";
 import NotFound from "./pages/NotFound";
-import Onboarding from './pages/Onboarding';
+import Onboarding from "./pages/Onboarding";
 
 const queryClient = new QueryClient();
 
@@ -33,23 +33,13 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const navigate = useNavigate();
 
   React.useEffect(() => {
-    // UNIFIED ONBOARDING CHECK
     if (user) {
       const needsOnboarding = user.temp_password || user.company_setup_completed === false;
-      const isOnOnboardingPage = window.location.pathname === '/onboarding';
-      const isOnChangePasswordPage = window.location.pathname === '/auth/change-password';
-      
-      console.log('🔍 ProtectedRoute Check:', {
-        temp_password: user.temp_password,
-        company_setup_completed: user.company_setup_completed,
-        needsOnboarding,
-        currentPath: window.location.pathname
-      });
-      
-      // If needs onboarding and NOT already on onboarding/change-password page
+      const isOnOnboardingPage = window.location.pathname === "/onboarding";
+      const isOnChangePasswordPage = window.location.pathname === "/auth/change-password";
+
       if (needsOnboarding && !isOnOnboardingPage && !isOnChangePasswordPage) {
-        console.log('⚠️ Onboarding needed - redirecting to /onboarding');
-        navigate('/onboarding', { replace: true });
+        navigate("/onboarding", { replace: true });
       }
     }
   }, [user, navigate]);
@@ -66,18 +56,16 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/login" replace />;
   }
 
-  // Block protected pages if onboarding needed
   const needsOnboarding = user?.temp_password || user?.company_setup_completed === false;
-  const isOnOnboardingPage = window.location.pathname === '/onboarding';
-  const isOnChangePasswordPage = window.location.pathname === '/auth/change-password';
-  
+  const isOnOnboardingPage = window.location.pathname === "/onboarding";
+  const isOnChangePasswordPage = window.location.pathname === "/auth/change-password";
+
   if (needsOnboarding && !isOnOnboardingPage && !isOnChangePasswordPage) {
     return null; // Will redirect in useEffect
   }
 
   return <>{children}</>;
 };
-
 
 // ============================================
 // MAIN APP COMPONENT
@@ -88,11 +76,31 @@ function AppContent() {
 
   return (
     <Routes>
-      {/* Public Routes */}
-      <Route path="/" element={isAuthenticated ? <Navigate to="/admin/dashboard" /> : <AdminDashboard />} />
-      <Route path="/login" element={isAuthenticated ? <Navigate to="/admin/dashboard" /> : <Login />} />
+      {/* DEFAULT HOST ROUTE -> your landing page */}
+      <Route
+        path="/"
+        element={
+          isAuthenticated ? (
+            <Navigate to="/admin/dashboard" replace />
+          ) : (
+            <Index /> // your landing page
+          )
+        }
+      />
 
-      {/* Change Password Route (Protected but always accessible for temp password users) */}
+      {/* Public login route */}
+      <Route
+        path="/login"
+        element={
+          isAuthenticated ? (
+            <Navigate to="/admin/dashboard" replace />
+          ) : (
+            <Login />
+          )
+        }
+      />
+
+      {/* Change Password Route */}
       <Route
         path="/auth/change-password"
         element={
@@ -102,7 +110,7 @@ function AppContent() {
         }
       />
 
-      {/* Onboarding Route - Password + Setup */}
+      {/* Onboarding Route */}
       <Route
         path="/onboarding"
         element={
@@ -111,7 +119,6 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
 
       {/* Admin Routes */}
       <Route
@@ -122,8 +129,6 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-
-      
 
       {/* Developer Routes */}
       <Route
