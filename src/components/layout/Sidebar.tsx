@@ -1,5 +1,4 @@
-// src/components/layout/Sidebar.tsx - FINAL PERFECT VERSION
-// ✅ Tooltips show ONLY on hover in collapsed mode & auto-dismiss
+// src/components/layout/Sidebar.tsx - TOOLTIPS WORKING PERFECTLY
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence, Variants } from "framer-motion";
@@ -19,7 +18,6 @@ import {
   FileText,
   BarChart3,
   Link2,
-  Bell,
   Settings,
   Building2,
   Shield,
@@ -32,7 +30,6 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -287,7 +284,6 @@ export const Sidebar: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [floatingMenu, setFloatingMenu] = useState<string | null>(null);
-  const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const { isDark } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -297,12 +293,14 @@ export const Sidebar: React.FC = () => {
     setFloatingMenu(null);
   }, [location]);
 
-  // ✅ FIX: Close tooltip when moving away from collapsed items
   useEffect(() => {
     if (isCollapsed) {
       setHoveredItem(null);
-    } else {
-      setOpenTooltip(null);
+      const event = new KeyboardEvent("keydown", {
+        key: "Escape",
+        code: "Escape",
+      });
+      document.dispatchEvent(event);
     }
   }, [isCollapsed]);
 
@@ -331,13 +329,6 @@ export const Sidebar: React.FC = () => {
       location.pathname === path || location.pathname.startsWith(path + "/")
     );
   };
-
-  const userInitial =
-    user.full_name?.charAt(0)?.toUpperCase() ||
-    user.name?.charAt(0)?.toUpperCase() ||
-    "?";
-
-  const displayName = user.full_name || user.name || "User";
 
   const handleLogout = () => {
     logout();
@@ -530,15 +521,7 @@ export const Sidebar: React.FC = () => {
                     if (isGrouped) {
                       return (
                         <motion.div key={item.label} layout className="relative">
-                          <Tooltip
-                            delayDuration={isCollapsed ? 200 : 300}
-                            open={isCollapsed ? openTooltip === item.label : undefined}
-                            onOpenChange={(open) => {
-                              if (isCollapsed) {
-                                setOpenTooltip(open ? item.label : null);
-                              }
-                            }}
-                          >
+                          <Tooltip delayDuration={300}>
                             <TooltipTrigger asChild>
                               <motion.button
                                 onClick={() => toggleGroup(item.label)}
@@ -548,22 +531,16 @@ export const Sidebar: React.FC = () => {
                                   isFloatingOpen &&
                                     (isDark
                                       ? "bg-blue-500/20"
-                                      : "bg-blue-100/60")
+                                      : "bg-blue-100/60"),
+                                  isCollapsed && "justify-center"
                                 )}
                                 whileHover="hover"
                                 variants={itemVariants}
                                 custom={currentIndex}
-                                onHoverStart={() => {
-                                  if (!isCollapsed) {
-                                    setHoveredItem(item.label);
-                                  }
-                                }}
-                                onHoverEnd={() => {
-                                  setHoveredItem(null);
-                                  if (isCollapsed) {
-                                    setOpenTooltip(null);
-                                  }
-                                }}
+                                onHoverStart={() =>
+                                  !isCollapsed && setHoveredItem(item.label)
+                                }
+                                onHoverEnd={() => setHoveredItem(null)}
                               >
                                 <motion.div
                                   className="relative flex-shrink-0"
@@ -700,16 +677,7 @@ export const Sidebar: React.FC = () => {
                     }
 
                     return (
-                      <Tooltip
-                        key={item.label}
-                        delayDuration={isCollapsed ? 200 : 300}
-                        open={isCollapsed ? openTooltip === item.label : undefined}
-                        onOpenChange={(open) => {
-                          if (isCollapsed) {
-                            setOpenTooltip(open ? item.label : null);
-                          }
-                        }}
-                      >
+                      <Tooltip key={item.label} delayDuration={300}>
                         <TooltipTrigger asChild>
                           <NavLink
                             to={item.path}
@@ -736,19 +704,13 @@ export const Sidebar: React.FC = () => {
                                 whileTap={{ scale: 0.95 }}
                                 className={cn(
                                   "flex items-center gap-3 px-3 py-3 rounded-lg relative group transition-colors duration-300 min-w-0",
-                                  theme.hoverBg
+                                  theme.hoverBg,
+                                  isCollapsed && "justify-center"
                                 )}
-                                onHoverStart={() => {
-                                  if (!isCollapsed) {
-                                    setHoveredItem(item.label);
-                                  }
-                                }}
-                                onHoverEnd={() => {
-                                  setHoveredItem(null);
-                                  if (isCollapsed) {
-                                    setOpenTooltip(null);
-                                  }
-                                }}
+                                onHoverStart={() =>
+                                  !isCollapsed && setHoveredItem(item.label)
+                                }
+                                onHoverEnd={() => setHoveredItem(null)}
                               >
                                 {isActive && (
                                   <motion.div
@@ -853,78 +815,18 @@ export const Sidebar: React.FC = () => {
           </div>
         </motion.nav>
 
-        {/* Quick Actions */}
+        {/* Settings Section - WITH TOOLTIP WHEN COLLAPSED */}
         <motion.div
           layout
           className={cn(
-            "px-2 py-3 border-t flex items-center justify-between gap-2 relative z-20 transition-colors duration-300 flex-shrink-0",
+            "border-t px-3 py-3 relative z-20 transition-colors duration-300 flex-shrink-0",
             isDark
               ? "bg-gradient-to-t from-slate-950/80 to-slate-950/40 backdrop-blur-sm"
               : "bg-white/50 backdrop-blur-[2px]",
             theme.border
           )}
         >
-          <Tooltip
-            delayDuration={isCollapsed ? 200 : 300}
-            open={isCollapsed ? openTooltip === "notifications" : undefined}
-            onOpenChange={(open) => {
-              if (isCollapsed) {
-                setOpenTooltip(open ? "notifications" : null);
-              }
-            }}
-          >
-            <TooltipTrigger asChild>
-              <NavLink
-                to="/notifications"
-                className={({ isActive }) =>
-                  cn(
-                    "block transition-colors duration-300",
-                    isActive
-                      ? isDark
-                        ? "text-blue-300"
-                        : "text-blue-600"
-                      : theme.textSecondary
-                  )
-                }
-              >
-                {({ isActive }) => (
-                  <motion.button
-                    whileHover={{ scale: 1.1, y: -2 }}
-                    whileTap={{ scale: 0.95 }}
-                    className={cn(
-                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all relative group flex-shrink-0",
-                      theme.hoverBg
-                    )}
-                    onHoverEnd={() => {
-                      if (isCollapsed) {
-                        setOpenTooltip(null);
-                      }
-                    }}
-                  >
-                    <Bell
-                      className={cn(
-                        "w-5 h-5 relative z-10 transition-all",
-                        isActive && "animate-bounce"
-                      )}
-                    />
-                  </motion.button>
-                )}
-              </NavLink>
-            </TooltipTrigger>
-            <TooltipContent side="right" className={theme.tooltipBg} sideOffset={8}>
-              Notifications
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip
-            delayDuration={isCollapsed ? 200 : 300}
-            open={isCollapsed ? openTooltip === "settings" : undefined}
-            onOpenChange={(open) => {
-              if (isCollapsed) {
-                setOpenTooltip(open ? "settings" : null);
-              }
-            }}
-          >
+          <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <NavLink
                 to="/settings"
@@ -940,130 +842,93 @@ export const Sidebar: React.FC = () => {
                 }
               >
                 {({ isActive }) => (
-                  <motion.button
-                    whileHover={{ scale: 1.1, rotate: 45 }}
-                    whileTap={{ scale: 0.95 }}
+                  <motion.div
                     className={cn(
-                      "flex items-center justify-center w-10 h-10 rounded-lg transition-all relative group flex-shrink-0",
-                      theme.hoverBg
+                      "flex items-center gap-3 px-3 py-3 rounded-lg relative group transition-all duration-300",
+                      theme.hoverBg,
+                      isCollapsed && "justify-center"
                     )}
-                    onHoverEnd={() => {
-                      if (isCollapsed) {
-                        setOpenTooltip(null);
-                      }
-                    }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
-                    <Settings className="w-5 h-5 relative z-10" />
-                  </motion.button>
+                    <Settings className="w-5 h-5 relative z-10 flex-shrink-0" />
+                    <AnimatePresence>
+                      {!isCollapsed && (
+                        <motion.span
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          className="text-sm font-semibold relative z-10 truncate"
+                        >
+                          Settings
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
                 )}
               </NavLink>
             </TooltipTrigger>
-            <TooltipContent side="right" className={theme.tooltipBg} sideOffset={8}>
-              Settings
-            </TooltipContent>
+            {isCollapsed && (
+              <TooltipContent side="right" className={theme.tooltipBg} sideOffset={8}>
+                Settings
+              </TooltipContent>
+            )}
           </Tooltip>
         </motion.div>
 
-        {/* User Profile */}
+        {/* Logout Section - WITH TOOLTIP WHEN COLLAPSED */}
         <motion.div
           layout
           className={cn(
-            "p-3 border-t flex items-center gap-3 relative z-20 transition-colors duration-300 flex-shrink-0",
+            "border-t px-3 py-3 relative z-20 transition-colors duration-300 flex-shrink-0",
             isDark
               ? "bg-gradient-to-t from-slate-950/80 to-slate-950/40 backdrop-blur-sm"
               : "bg-white/50 backdrop-blur-[2px]",
             theme.border
           )}
-          whileHover={{ scale: 1.02 }}
         >
-          <motion.div
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.95 }}
-            className="relative flex-shrink-0"
-          >
-            <Avatar
-              className={cn(
-                "w-10 h-10 border-2 relative z-10 transition-colors duration-300",
-                isDark ? "border-blue-500" : "border-blue-500"
-              )}
-            >
-              <AvatarImage src={user.avatar_url} />
-              <AvatarFallback className={cn("text-white transition-all duration-300", theme.logo)}>
-                {userInitial}
-              </AvatarFallback>
-            </Avatar>
-          </motion.div>
-
-          <AnimatePresence>
-            {!isCollapsed && (
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="flex-1 min-w-0"
-              >
-                <p
-                  className={cn(
-                    "text-sm font-bold truncate transition-colors duration-300",
-                    isDark ? "text-slate-100" : "text-slate-900"
-                  )}
-                >
-                  {displayName}
-                </p>
-                <motion.p
-                  className={cn(
-                    "text-xs capitalize transition-colors duration-300 truncate",
-                    isDark ? "text-blue-400/70" : "text-blue-500/70"
-                  )}
-                  animate={{ opacity: [0.6, 1, 0.6] }}
-                  transition={{ duration: 3, repeat: Infinity }}
-                >
-                  {user.role}
-                </motion.p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <Tooltip
-            delayDuration={isCollapsed ? 200 : 300}
-            open={isCollapsed ? openTooltip === "logout" : undefined}
-            onOpenChange={(open) => {
-              if (isCollapsed) {
-                setOpenTooltip(open ? "logout" : null);
-              }
-            }}
-          >
+          <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <motion.button
                 onClick={handleLogout}
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
                 className={cn(
-                  "flex items-center justify-center w-8 h-8 rounded-lg transition-all relative group flex-shrink-0",
+                  "w-full flex items-center gap-3 px-3 py-3 rounded-lg relative group transition-all duration-300",
                   isDark
                     ? "text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                    : "text-slate-600 hover:text-red-500 hover:bg-red-100"
+                    : "text-slate-600 hover:text-red-500 hover:bg-red-100",
+                  isCollapsed && "justify-center"
                 )}
-                onHoverEnd={() => {
-                  if (isCollapsed) {
-                    setOpenTooltip(null);
-                  }
-                }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
-                <LogOut className="w-4 h-4 relative z-10 transition-colors" />
+                <LogOut className="w-5 h-5 relative z-10 flex-shrink-0" />
+                <AnimatePresence>
+                  {!isCollapsed && (
+                    <motion.span
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      className="text-sm font-semibold relative z-10 truncate"
+                    >
+                      Logout
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </motion.button>
             </TooltipTrigger>
-            <TooltipContent
-              side="top"
-              className={isDark ? "bg-red-600" : "bg-red-500"}
-              sideOffset={8}
-            >
-              Logout
-            </TooltipContent>
+            {isCollapsed && (
+              <TooltipContent 
+                side="right" 
+                className={isDark ? "bg-red-600" : "bg-red-500"} 
+                sideOffset={8}
+              >
+                Logout
+              </TooltipContent>
+            )}
           </Tooltip>
         </motion.div>
 
-        {/* Collapse Button */}
+        {/* Collapse Button - DYNAMIC ICONS */}
         <motion.button
           onClick={() => setIsCollapsed(!isCollapsed)}
           whileHover={{ scale: 1.05 }}
@@ -1078,8 +943,7 @@ export const Sidebar: React.FC = () => {
         >
           <motion.div
             animate={{
-              rotate: isCollapsed ? 180 : 0,
-              x: isCollapsed ? 4 : -4,
+              rotate: isCollapsed ? 0 : 0,
             }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="relative z-10"
