@@ -139,6 +139,26 @@ export const authRest = {
 
     return res.json();
   },
+
+  // ✅ ADD HR MANAGER (MOVED HERE FROM usersRest)
+  async addHR(name: string, email: string) {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API}/api/auth/add_hr/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name, email }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to add HR');
+    }
+
+    return res.json();
+  },
 };
 
 // ============================================
@@ -207,26 +227,6 @@ export const usersRest = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Failed to complete profile');
-    }
-
-    return res.json();
-  },
-
-  // Add HR User (Company Admin adds manager)
-  async addHR(name: string, email: string) {
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${API}/api/auth/add_hr/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ name, email }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to add HR');
     }
 
     return res.json();

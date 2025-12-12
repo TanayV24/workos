@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
+from users.models import User as UsersAppUser
 from .models import Company, CompanyAdmin, CompanyRegistrationToken
 from .serializers import (
     CompanyRegisterSerializer,
@@ -364,6 +365,201 @@ class AuthViewSet(viewsets.ViewSet):
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='add_hr')
+    def add_hr(self, request):
+        """
+        Add HR Manager during company setup
+        
+        Path: /api/auth/add_hr/
+        Method: POST
+        Permissions: IsAuthenticated (Company Admin)
+        
+        Request body:
+        {
+            "name": "Zeel Patel",
+            "email": "zeel@company.com"
+        }
+        
+        Response:
+        {
+            "success": true,
+            "message": "HR Manager Zeel Patel added successfully. Invitation sent to zeel@company.com",
+            "data": {
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "Zeel Patel",
+                "email": "zeel@company.com",
+                "company_email": "zeel.patel@company_code.com",
+                "role": "hr_manager",
+                "status": "invited",
+                "temp_password": "aB3cDeFgHiJ..."
+            }
+        }
+        """
+        
+        try:
+            # ========== Step 1: Get company admin ==========
+            try:
+                company_admin = CompanyAdmin.objects.get(user=request.user)
+                company = company_admin.company
+            except CompanyAdmin.DoesNotExist:
+                print(f"❌ Company admin not found")
+                return Response({
+                    'success': False,
+                    'error': 'Company admin not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            print("\n" + "="*80)
+            print("👤 ADD HR MANAGER")
+            print(f"Company: {company.name}")
+            print(f"Admin: {company_admin.full_name}")
+            print("="*80)
+            
+            # ========== Step 2: Get and validate data ==========
+            name = request.data.get('name', '').strip()
+            email = request.data.get('email', '').strip().lower()
+            
+            print(f"\n📦 Request Data:")
+            print(f"  Name: {name}")
+            print(f"  Email: {email}")
+            
+            # Validate required fields
+            if not name or not email:
+                print(f"❌ Missing name or email")
+                return Response({
+                    'success': False,
+                    'error': 'Name and email are required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if len(name) < 2:
+                print(f"❌ Name too short")
+                return Response({
+                    'success': False,
+                    'error': 'Name must be at least 2 characters'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate email format
+            import re
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email):
+                print(f"❌ Invalid email format")
+                return Response({
+                    'success': False,
+                    'error': 'Invalid email format'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ========== Step 3: Check for duplicates ==========
+            print(f"\n🔍 Checking if email already exists...")
+            
+            # ✅ FIXED: Check using Django's User model (for auth)
+            if User.objects.filter(email=email).exists():
+                print(f"❌ Email already exists in system")
+                return Response({
+                    'success': False,
+                    'error': 'This email already exists in the system'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ✅ FIXED: Also check in users.User model if they exist there
+            if UsersAppUser.objects.filter(email=email).exists():
+                print(f"❌ Email already exists in users system")
+                return Response({
+                    'success': False,
+                    'error': 'This email already exists in the system'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            print(f"✓ Email is available")
+            
+            # ========== Step 4: Generate credentials ==========
+            print(f"\n🔐 Generating credentials...")
+            
+            import secrets
+            temp_password = secrets.token_urlsafe(12)
+            
+            # Generate company email for the manager
+            manager_company_email = f"{name.lower().replace(' ', '.')}@{company.code.lower()}.com"
+            
+            print(f"  ✓ Temp password: {temp_password}")
+            print(f"  ✓ Company email: {manager_company_email}")
+            
+            # ========== Step 5: Create Django User (for authentication) ==========
+            print(f"\n👤 Creating Django user...")
+            
+            django_user = User.objects.create_user(
+                username=manager_company_email,
+                email=manager_company_email,
+                password=temp_password,
+                first_name=name.split()[0] if name.split() else 'HR',
+                last_name=' '.join(name.split()[1:]) if len(name.split()) > 1 else 'Manager'
+            )
+            
+            print(f"  ✓ Django user created: {django_user.username}")
+            
+            # ========== Step 6: Create users.User record ==========
+            print(f"\n👤 Creating users.User record...")
+            
+            # ✅ FIXED: Using custom User model from users app
+            hr_user = UsersAppUser.objects.create(
+                id=django_user.id,  # Link to Django user
+                email=email,  # Their personal email
+                name=name,
+                role='hr_manager',  # ✅ SET ROLE
+                company_id=company.id,
+                temp_password=True,  # ✅ MARK AS TEMP
+                profile_completed=False
+            )
+            
+            # Set password using the custom method
+            hr_user.set_password(temp_password)
+            hr_user.save()
+            
+            print(f"  ✓ users.User record created")
+            print(f"  ✓ Role set to: hr_manager")
+            print(f"  ✓ Company ID: {company.id}")
+            print(f"  ✓ Temp password marked: True")
+            
+            # ========== Step 7: Send invitation email ==========
+            print(f"\n📧 Sending invitation email...")
+            
+            try:
+                # ✅ FIXED: Using correct email method
+                CompanyEmailService.send_manager_invitation(
+                    personal_email=email,  # Send to personal email
+                    company_name=company.name,
+                    manager_email=manager_company_email,  # Tell them company email
+                    temp_password=temp_password
+                )
+                print(f"  ✓ Invitation email sent to {email}")
+            except Exception as e:
+                print(f"  ⚠️ Email sending failed: {str(e)}")
+                # Don't fail the request if email fails
+            
+            # ========== Step 8: Return success response ==========
+            print(f"\n✅ HR MANAGER ADDED SUCCESSFULLY")
+            print("="*80 + "\n")
+            
+            return Response({
+                'success': True,
+                'message': f'HR Manager {name} added successfully. Invitation sent to {email}',
+                'data': {
+                    'id': str(hr_user.id),
+                    'name': name,
+                    'email': email,  # Personal email
+                    'company_email': manager_company_email,  # Company email
+                    'role': 'hr_manager',
+                    'status': 'invited',
+                    'temp_password': temp_password
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            print(f"\n❌ Error adding HR Manager: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            return Response({
+                'success': False,
+                'error': f'Failed to add HR Manager: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # ============================================
 # ADMIN DASHBOARD VIEWSET
@@ -570,191 +766,3 @@ class AdminDashboardViewSet(viewsets.ViewSet):
             }
         })
 
-# ============================================
-# USERS VIEWSET - HR Management
-# ============================================
-
-class UsersViewSet(viewsets.ViewSet):
-    """
-    ViewSet for user operations (HR managers, employees)
-    
-    Endpoints:
-    - POST /api/users/add_hr/
-    - GET /api/users/company_hrs/
-    """
-    
-    permission_classes = [IsAuthenticated]
-    
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='add_hr')
-    def add_hr(self, request):
-        """
-        Add HR Manager to company
-        
-        Path: /api/users/add_hr/
-        Method: POST
-        Permissions: IsAuthenticated
-        
-        Request body:
-        {
-            "name": "Zeel Patel",
-            "email": "zeel@company.com"
-        }
-        
-        Response:
-        {
-            "success": true,
-            "message": "HR Manager added successfully",
-            "data": {
-                "id": "123",
-                "name": "Zeel Patel",
-                "email": "zeel@company.com",
-                "role": "hr_manager",
-                "status": "invited"
-            }
-        }
-        """
-        
-        try:
-            # Get company admin
-            company_admin = CompanyAdmin.objects.get(user=request.user)
-            company = company_admin.company
-            
-            print("\n" + "="*80)
-            print("👤 ADD HR MANAGER")
-            print(f"Company: {company.name}")
-            print(f"Admin: {company_admin.full_name}")
-            print("="*80)
-            
-            # Get data from request
-            name = request.data.get('name', '').strip()
-            email = request.data.get('email', '').strip().lower()
-            
-            print(f"\n📦 Request Data:")
-            print(f"  Name: {name}")
-            print(f"  Email: {email}")
-            
-            # Validation
-            if not name or not email:
-                print(f"❌ Missing name or email")
-                return Response({
-                    'success': False,
-                    'error': 'Name and email are required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            if len(name) < 2:
-                print(f"❌ Name too short")
-                return Response({
-                    'success': False,
-                    'error': 'Name must be at least 2 characters'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Validate email format
-            import re
-            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-            if not re.match(email_pattern, email):
-                print(f"❌ Invalid email format")
-                return Response({
-                    'success': False,
-                    'error': 'Invalid email format'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Check if email already exists in system
-            print(f"\n🔍 Checking if email already exists...")
-            
-            if User.objects.filter(email=email).exists():
-                print(f"❌ Email already exists in system")
-                return Response({
-                    'success': False,
-                    'error': 'This email already exists in the system'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Generate temp password
-            import random
-            import string
-            temp_password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
-            
-            # Create user
-            print(f"\n👤 Creating user...")
-            user = User.objects.create_user(
-                username=email.split('@')[0] + '_' + str(uuid.uuid4())[:8],
-                email=email,
-                password=temp_password,
-                first_name=name.split()[0] if name else '',
-                last_name=' '.join(name.split()[1:]) if len(name.split()) > 1 else ''
-            )
-            
-            print(f"  ✓ New user created: {user.username}")
-            print(f"  ✓ Temp password: {temp_password}")
-            
-            # Send invitation email (optional)
-            print(f"\n📧 Sending invitation email...")
-            try:
-                from .email import CompanyEmailService
-                email_service = CompanyEmailService()
-                email_service.send_hr_invitation(
-                    hr_email=email,
-                    hr_name=name,
-                    company_name=company.name,
-                    admin_name=company_admin.full_name,
-                    temp_password=temp_password
-                )
-                print(f"  ✓ Invitation email sent")
-            except Exception as e:
-                print(f"  ⚠️ Email sending failed: {str(e)}")
-            
-            print(f"\n✅ HR MANAGER ADDED SUCCESSFULLY")
-            print("="*80 + "\n")
-            
-            return Response({
-                'success': True,
-                'message': 'HR Manager added successfully',
-                'data': {
-                    'id': str(user.id),
-                    'name': name,
-                    'email': email,
-                    'role': 'hr_manager',
-                    'status': 'invited'
-                }
-            }, status=status.HTTP_201_CREATED)
-            
-        except CompanyAdmin.DoesNotExist:
-            print(f"❌ Company admin not found")
-            return Response({
-                'success': False,
-                'error': 'Company admin not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-            
-        except Exception as e:
-            print(f"❌ Error: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return Response({
-                'success': False,
-                'error': f'Failed to add HR Manager: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated], url_path='company_hrs')
-    def company_hrs(self, request):
-        """
-        List all HR managers for the company
-        
-        Path: /api/users/company_hrs/
-        Method: GET
-        """
-        try:
-            company_admin = CompanyAdmin.objects.get(user=request.user)
-            company = company_admin.company
-            
-            # Get all users associated with this company
-            # For now, return empty list
-            
-            return Response({
-                'success': True,
-                'data': []
-            })
-            
-        except CompanyAdmin.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Company admin not found'
-            }, status=status.HTTP_404_NOT_FOUND)
