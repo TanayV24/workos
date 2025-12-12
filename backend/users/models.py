@@ -16,6 +16,8 @@ class User(models.Model):
     email = models.EmailField(unique=True, db_index=True)
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=20, null=True, blank=True)
+    date_joined = models.DateTimeField(auto_now_add=True)
+
     
     # The 4 NEW columns we added
     role = models.CharField(
