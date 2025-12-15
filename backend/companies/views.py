@@ -25,6 +25,8 @@ from django.utils import timezone
 from django.db import transaction, IntegrityError
 from django.core.mail import send_mail  # keep as fallback; your CompanyEmailService used below
 import logging
+import re
+import secrets
 logger = logging.getLogger(__name__)
 # --- end additions ---
 
@@ -374,128 +376,248 @@ class AuthViewSet(viewsets.ViewSet):
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-        @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='add_hr')
-        def add_hr(self, request):
-            """
-            Add HR Manager during company setup (safe, minimal changes).
-            Creates:
-            - django.contrib.auth.User (company-facing email) for auth
-            - UsersAppUser (your custom users table) for personal email/profile
-            """
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='add_hr')
+    def add_hr(self, request):
+        """
+        ✅ CORRECTED: Add HR Manager using PERSONAL EMAIL as login
+        
+        Flow:
+        1. Admin provides: name + personal_email (e.g., zeelp1696@gmail.com)
+        2. System creates Django User with username = personal_email
+        3. HR receives credentials for their PERSONAL EMAIL
+        4. HR logins with personal_email + temp_password
+        5. Creates corresponding Supabase user record
+        
+        Key Changes:
+        - Use personal_email as Django username (NOT generated email)
+        - Generate UUID for Supabase id field
+        - Check duplicates in both tables before creation
+        - HR logs in with personal_email, not company email
+        """
+        try:
+            # Step 1: Get company from requesting admin
             try:
-                # Step 1: get company from requesting admin
-                try:
-                    company_admin = CompanyAdmin.objects.get(user=request.user)
-                    company = company_admin.company
-                except CompanyAdmin.DoesNotExist:
-                    return Response({'success': False, 'error': 'Company admin not found'}, status=status.HTTP_404_NOT_FOUND)
+                company_admin = CompanyAdmin.objects.get(user=request.user)
+                company = company_admin.company
+            except CompanyAdmin.DoesNotExist:
+                return Response(
+                    {'success': False, 'error': 'Company admin not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
-                name = (request.data.get('name') or "").strip()
-                email = (request.data.get('email') or "").strip().lower()
+            print("\n" + "="*80)
+            print("➕ ADD HR MANAGER")
+            print(f"Company: {company.name}")
+            print("="*80)
 
-                if not name or not email:
-                    return Response({'success': False, 'error': 'Name and email are required'}, status=status.HTTP_400_BAD_REQUEST)
+            # Step 2: Get and validate input
+            name = (request.data.get('name') or "").strip()
+            personal_email = (request.data.get('email') or "").strip().lower()  # ✅ Personal email
 
-                # Basic email regex check
-                import re, secrets
-                email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-                if not re.match(email_pattern, email):
-                    return Response({'success': False, 'error': 'Invalid email format'}, status=status.HTTP_400_BAD_REQUEST)
+            if not name or not personal_email:
+                return Response(
+                    {'success': False, 'error': 'Name and email are required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-                # Duplicate checks
-                if User.objects.filter(email=email).exists() or UsersAppUser.objects.filter(email=email).exists():
-                    return Response({'success': False, 'error': 'This email already exists in the system'}, status=status.HTTP_400_BAD_REQUEST)
+            print(f"\n📝 Input:")
+            print(f"  Name: {name}")
+            print(f"  Personal Email (for login): {personal_email}")
 
-                temp_password = secrets.token_urlsafe(12)
-                manager_company_email = f"{name.lower().replace(' ', '.')}@{company.code.lower()}.com"
+            # Step 3: Email format validation
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, personal_email):
+                return Response(
+                    {'success': False, 'error': 'Invalid email format'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-                # Create both records atomically
-                try:
-                    with transaction.atomic():
-                        # Create django.contrib.auth.User for company-login (if you want a separate auth user)
-                        django_user = User.objects.create_user(
-                            username=manager_company_email,
-                            email=manager_company_email,
-                            password=temp_password,
-                            first_name=name.split()[0] if name.split() else 'HR',
-                            last_name=' '.join(name.split()[1:]) if len(name.split()) > 1 else 'Manager'
-                        )
+            # Step 4: Check for duplicates (CRITICAL)
+            print(f"\n🔍 Checking for duplicates...")
+            
+            # Check Django auth_user table
+            if User.objects.filter(username=personal_email).exists():
+                print(f"❌ DUPLICATE: Django User username '{personal_email}' already exists")
+                return Response(
+                    {'success': False, 'error': f'Email {personal_email} is already registered'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check Supabase users table
+            if UsersAppUser.objects.filter(email=personal_email).exists():
+                print(f"❌ DUPLICATE: Supabase user with email '{personal_email}' already exists")
+                return Response(
+                    {'success': False, 'error': f'Email {personal_email} is already registered in system'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            print(f"✓ No duplicates found")
 
-                        # Create the UsersAppUser (custom wrapper). DO NOT pass id=django_user.id (UUID vs int mismatch)
-                        hr_create_kwargs = {
-                            'email': email,            # personal email
-                            'name': name,
-                            'role': 'hr_manager',
-                            'company_id': company.id,  # your model uses company_id
-                            'temp_password': True,
-                            'profile_completed': False,
-                            # do not pass date_joined explicitly; model has auto_now_add=True
-                        }
+            # Step 5: Generate credentials
+            temp_password = secrets.token_urlsafe(12)
+            user_id = str(uuid.uuid4())  # ✅ UUID for Supabase id field
 
-                        # Keep only keys that exist on the model (safety)
-                        allowed_field_names = {f.name for f in UsersAppUser._meta.fields}
-                        filtered_kwargs = {k: v for k, v in hr_create_kwargs.items() if k in allowed_field_names and v is not None}
+            print(f"\n🔐 Generated credentials:")
+            print(f"  User ID (Supabase): {user_id}")
+            print(f"  Temp Password: {temp_password[:8]}...")
+            print(f"  Login Email: {personal_email}")
 
-                        hr_user = UsersAppUser.objects.create(**filtered_kwargs)
+            # Step 6: Create both records atomically
+            try:
+                with transaction.atomic():
+                    print(f"\n📌 Starting transaction...")
 
-                        # Set hashed password into your custom user (uses password_hash field)
-                        try:
+                    # ✅ Create django.contrib.auth.User
+                    # Username = personal_email (HR logs in with this)
+                    django_user = User.objects.create_user(
+                        username=personal_email,  # ✅ HR's personal email (for login)
+                        email=personal_email,     # Same as username
+                        password=temp_password,
+                        first_name=name.split()[0] if name.split() else 'HR',
+                        last_name=' '.join(name.split()[1:]) if len(name.split()) > 1 else 'Manager',
+                        date_joined=timezone.now()
+                    )
+                    print(f"  ✓ Django User created")
+                    print(f"    Username: {django_user.username}")
+                    print(f"    Email: {django_user.email}")
+                    print(f"    ID (Django): {django_user.id}")
+
+                    # ✅ Create UsersAppUser (Supabase users table)
+                    hr_create_kwargs = {
+                        'id': user_id,  # ✅ EXPLICIT UUID FOR SUPABASE
+                        'email': personal_email,  # ✅ Personal email (for login)
+                        'name': name,
+                        'role': 'hr_manager',
+                        'company_id': company.id,
+                        'temp_password': True,
+                        'profile_completed': False,
+                        'is_active': True,
+                        'status': 'active',
+                        'employee_type': 'permanent',
+                    }
+
+                    # Filter to only allowed fields
+                    allowed_field_names = {f.name for f in UsersAppUser._meta.fields}
+                    filtered_kwargs = {
+                        k: v for k, v in hr_create_kwargs.items()
+                        if k in allowed_field_names and v is not None
+                    }
+
+                    print(f"\n  Creating Supabase user with fields:")
+                    for k, v in filtered_kwargs.items():
+                        if k != 'password_hash':
+                            print(f"    - {k}: {v}")
+
+                    hr_user = UsersAppUser.objects.create(**filtered_kwargs)
+                    print(f"  ✓ Supabase User created")
+                    print(f"    Email: {hr_user.email}")
+                    print(f"    ID (Supabase): {hr_user.id}")
+
+                    # ✅ Hash password if supported
+                    try:
+                        if hasattr(hr_user, 'set_password'):
                             hr_user.set_password(temp_password)
                             hr_user.save()
-                        except Exception:
-                            # If set_password is not applicable for any reason, at least ensure django_user has the password
-                            logger.debug("hr_user.set_password failed or not applicable; django_user was created for auth")
+                            print(f"  ✓ Password hashed and saved")
+                    except Exception as e:
+                        logger.debug(f"Could not hash password on Supabase user: {e}")
 
-                except IntegrityError as ie:
-                    logger.exception("IntegrityError when creating HR user: %s", ie)
-                    return Response({'success': False, 'error': str(ie)}, status=status.HTTP_400_BAD_REQUEST)
-                except Exception as exc:
-                    logger.exception("Unexpected error when creating HR user: %s", exc)
-                    return Response({'success': False, 'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    print(f"✓ Transaction committed successfully")
 
-                # Send invitation email AFTER commit (use your CompanyEmailService)
-                try:
-                    CompanyEmailService.send_manager_invitation(
-                        personal_email=email,
-                        company_name=company.name,
-                        manager_email=manager_company_email,
-                        temp_password=temp_password
+            except IntegrityError as ie:
+                error_str = str(ie)
+                print(f"❌ INTEGRITY ERROR: {error_str}")
+                logger.exception("IntegrityError when creating HR user: %s", ie)
+                
+                if 'duplicate' in error_str or 'unique constraint' in error_str:
+                    return Response(
+                        {
+                            'success': False,
+                            'error': 'Email already exists. Please use a different email address.',
+                            'detail': error_str
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
                     )
-                except Exception as e:
-                    logger.exception("Email sending failed for %s: %s", email, e)
-                    # user exists; return created-with-warning
-                    return Response({
-                        'success': True,
-                        'message': f'HR Manager {name} added, but failed to send email.',
-                        'data': {
-                            'id': str(hr_user.id),
-                            'name': name,
-                            'email': email,
-                            'company_email': manager_company_email,
-                            'role': 'hr_manager',
-                            'status': 'invited',
-                            'temp_password': temp_password
-                        }
-                    }, status=status.HTTP_201_CREATED)
+                elif 'null' in error_str or 'NOT NULL' in error_str:
+                    return Response(
+                        {
+                            'success': False,
+                            'error': 'Missing required field. Please ensure all fields are provided.',
+                            'detail': error_str
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    return Response(
+                        {
+                            'success': False,
+                            'error': 'Failed to create user due to database constraint violation.',
+                            'detail': error_str
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
-                # success
-                return Response({
-                    'success': True,
-                    'message': f'HR Manager {name} added successfully. Invitation sent to {email}',
-                    'data': {
-                        'id': str(hr_user.id),
-                        'name': name,
-                        'email': email,
-                        'company_email': manager_company_email,
-                        'role': 'hr_manager',
-                        'status': 'invited',
-                        'temp_password': temp_password
-                    }
-                }, status=status.HTTP_201_CREATED)
+            except Exception as exc:
+                print(f"❌ UNEXPECTED ERROR: {str(exc)}")
+                logger.exception("Unexpected error when creating HR user: %s", exc)
+                return Response(
+                    {'success': False, 'error': f'Failed to create HR user: {str(exc)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            # Step 7: Send invitation email to personal email
+            try:
+                print(f"\n📧 Sending invitation email to {personal_email}...")
+                CompanyEmailService.send_hr_invitation(
+                    personal_email=personal_email,
+                    company_name=company.name,
+                    hr_email=personal_email,
+                    temp_password=temp_password
+                )
+                print(f"✓ Email sent successfully")
+                email_sent = True
 
             except Exception as e:
-                logger.exception("Failed to add HR Manager: %s", e)
-                return Response({'success': False, 'error': f'Failed to add HR Manager: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                print(f"⚠️ Email sending failed: {str(e)}")
+                logger.exception("Email sending failed for %s: %s", personal_email, e)
+                email_sent = False
+
+            # Step 8: Return success response
+            print(f"\n✅ HR MANAGER ADDED SUCCESSFULLY")
+            print(f"   Login with: {personal_email}")
+            print(f"   Temp password sent to: {personal_email}")
+            print("="*80 + "\n")
+
+            response_message = f'HR Manager {name} created successfully. Check {personal_email} for login credentials.'
+            if not email_sent:
+                response_message += ' (Note: Email delivery failed)'
+
+            return Response(
+                {
+                    'success': True,
+                    'message': response_message,
+                    'data': {
+                        'id': user_id,
+                        'name': name,
+                        'email': personal_email,  # ✅ This is the login email
+                        'role': 'hr_manager',
+                        'company_id': str(company.id),
+                        'company_name': company.name,
+                        'login_email': personal_email,  # ✅ Clear: this is login email
+                        'temp_password': temp_password,
+                        'instructions': f'HR Manager {name} can login at your app with email {personal_email} and the temporary password. They must change it on first login.'
+                    }
+                },
+                status=status.HTTP_201_CREATED
+            )
+
+        except Exception as e:
+            print(f"❌ CRITICAL ERROR: {str(e)}")
+            logger.exception("Failed to add HR Manager: %s", e)
+            return Response(
+                {'success': False, 'error': f'Failed to add HR Manager: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 
