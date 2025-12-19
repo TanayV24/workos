@@ -223,7 +223,7 @@ class AuthViewSet(viewsets.ViewSet):
                     'temp_password': temp_password,
                     'company_setup_completed': company_setup_completed,
                     'profile_completed': profile_completed,
-                    'role':  supabase_user.role,
+                    'role': user_role,
                 }
             }
         }

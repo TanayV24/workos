@@ -1,17 +1,19 @@
+// src/App.tsx - MINIMAL CHANGES ONLY
+
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { SidebarProvider } from '@/contexts/SidebarContext';
 
-
-// Pages
 import Index from './pages/Index';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Dashboard from './Dashboards/Dashboard';
 import AdminDashboard from './Dashboards/AdminDashboard';
 import ManagerDashboard from './Dashboards/ManagerDashboard'; // NEW
+import MainDashboard from './Dashboards/MainDashboard'; // ← ADD THIS (NEW IMPORT)
 import Onboarding from './pages/Onboarding';
 import ProfileCompletion from './pages/ProfileCompletion';
 import Employees from './pages/Employees';
@@ -93,7 +95,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
       }
 
       // Step 3: All done, route to manager dashboard
-      if (user.profile_completed === true && currentPath === '/profile-completion') {
+      if (
+        user.profile_completed === true &&
+        currentPath === '/profile-completion'
+      ) {
         console.log('Manager: Profile complete → managerdashboard');
         navigate('/ManagerDashboard', { replace: true });
         return;
@@ -121,7 +126,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
       }
 
       // Step 3: All done, route to dashboard
-      if (user.profile_completed === true && currentPath === '/profile-completion') {
+      if (
+        user.profile_completed === true &&
+        currentPath === '/profile-completion'
+      ) {
         console.log('HR: Profile complete → dashboard');
         navigate('/ManagerDashboard', { replace: true });
         return;
@@ -149,7 +157,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
       }
 
       // Step 3: All done, route to dashboard
-      if (user.profile_completed === true && currentPath === '/profile-completion') {
+      if (
+        user.profile_completed === true &&
+        currentPath === '/profile-completion'
+      ) {
         console.log('Employee: Profile complete → dashboard');
         navigate('/dashboard', { replace: true });
         return;
@@ -159,11 +170,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-full border-4 border-blue-50 border-t-blue-500 animate-spin mx-auto mb-4" />
-          <p className="text-slate-600">Loading...</p>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        Loading...
       </div>
     );
   }
@@ -171,28 +179,20 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// MAIN APP COMPONENT
-function AppContent() {
+// APP CONTENT COMPONENT
+const AppContent: React.FC = () => {
   return (
     <Routes>
       {/* PUBLIC ROUTES */}
       <Route path="/" element={<Index />} />
       <Route path="/login" element={<Login />} />
 
-      {/* PROTECTED ROUTES - Auth */}
+      {/* CHANGE PASSWORD - Accessible to all authenticated users */}
       <Route
         path="/auth/change-password"
         element={
           <ProtectedRoute>
             <ChangePassword />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/onboarding"
-        element={
-          <ProtectedRoute>
-            <Onboarding />
           </ProtectedRoute>
         }
       />
@@ -204,27 +204,18 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/profile-completion"
-        element={
-          <ProtectedRoute>
-            <ProfileCompletion />
-          </ProtectedRoute>
-        }
-      />
 
-      {/* PROTECTED ROUTES - Dashboards */}
-      {/* Main Dashboard (Employee/HR) */}
+      {/* MAIN DASHBOARD - SMART ROUTER (CHANGED FROM Dashboard TO MainDashboard) */}
       <Route
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <Dashboard />
+            <MainDashboard /> {/* ← CHANGED: Now routes based on user role */}
           </ProtectedRoute>
         }
       />
 
-      {/* Admin Dashboard */}
+      {/* ADMIN DASHBOARD */}
       <Route
         path="/admin/dashboard"
         element={
@@ -234,7 +225,7 @@ function AppContent() {
         }
       />
 
-      {/* Manager Dashboard (NEW) ⭐ */}
+      {/* MANAGER DASHBOARD */}
       <Route
         path="/ManagerDashboard"
         element={
@@ -244,7 +235,37 @@ function AppContent() {
         }
       />
 
-      {/* PROTECTED ROUTES - Other Pages */}
+      {/* EMPLOYEE DASHBOARD */}
+      <Route
+        path="/employee-dashboard"
+        element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ONBOARDING */}
+      <Route
+        path="/onboarding"
+        element={
+          <ProtectedRoute>
+            <Onboarding />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* PROFILE COMPLETION */}
+      <Route
+        path="/profile-completion"
+        element={
+          <ProtectedRoute>
+            <ProfileCompletion />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* EMPLOYEES */}
       <Route
         path="/employees"
         element={
@@ -253,6 +274,8 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
+      {/* TASKS */}
       <Route
         path="/tasks"
         element={
@@ -261,6 +284,8 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
+      {/* LEAVE */}
       <Route
         path="/leave"
         element={
@@ -269,6 +294,8 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
+      {/* ATTENDANCE */}
       <Route
         path="/attendance"
         element={
@@ -277,6 +304,8 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
+      {/* SETTINGS */}
       <Route
         path="/settings"
         element={
@@ -285,6 +314,8 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
+      {/* CHAT */}
       <Route
         path="/chat"
         element={
@@ -293,6 +324,8 @@ function AppContent() {
           </ProtectedRoute>
         }
       />
+
+      {/* WHITEBOARD */}
       <Route
         path="/whiteboard"
         element={
@@ -302,23 +335,27 @@ function AppContent() {
         }
       />
 
-      {/* 404 Fallback */}
+      {/* CATCH ALL - REDIRECT TO HOME */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
-}
+};
 
-// ROOT APP COMPONENT
-export default function App() {
+// MAIN APP COMPONENT
+const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
           <ThemeProvider>
-          <AppContent />
+            <SidebarProvider>
+              <AppContent />
+            </SidebarProvider>
           </ThemeProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );
-}
+};
+
+export default App;
