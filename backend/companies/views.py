@@ -1,5 +1,4 @@
 # companies/views.py - UNIFIED ENDPOINTS FOR ALL USERS
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -7,14 +6,15 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from users.models import User as UsersAppUser
-from .models import Company, CompanyAdmin, CompanyRegistrationToken
+from .models import Company, CompanyAdmin, CompanyRegistrationToken, CompanyDetails
 from .serializers import (
     CompanyRegisterSerializer,
     CompanyAdminCreateSerializer,
     CompanyAdminLoginSerializer,
     ChangePasswordSerializer,
     DashboardDataSerializer,
-    CompanySetupSerializer
+    CompanySetupSerializer,
+    CompanyDetailsSerializer,
 )
 from .email import CompanyEmailService
 import uuid
@@ -72,11 +72,11 @@ class AuthViewSet(viewsets.ViewSet):
     """
     ViewSet for authentication operations
     Endpoints:
-    - POST /api/auth/login/          (✅ UNIFIED for ALL users)
-    - POST /api/auth/change_temp_password/  (✅ UNIFIED for ALL users)
+    - POST /api/auth/login/ (✅ UNIFIED for ALL users)
+    - POST /api/auth/change_temp_password/ (✅ UNIFIED for ALL users)
     - POST /api/auth/company_setup/
     - POST /api/auth/add_hr/
-    - PUT /api/auth/appearance/
+    - POST /api/auth/add_manager/
     - GET /api/auth/profile/
     """
 
@@ -183,7 +183,7 @@ class AuthViewSet(viewsets.ViewSet):
             print(f"✓ CompanyAdmin found - role: company_admin")
         except CompanyAdmin.DoesNotExist:
             print(f"⚠️ CompanyAdmin NOT found, checking UsersAppUser table...")
-            
+
             # Try to get UsersAppUser (for HR/Manager/Employee)
             try:
                 supabase_user = UsersAppUser.objects.get(email=user.email)
@@ -192,7 +192,7 @@ class AuthViewSet(viewsets.ViewSet):
                 user_role = supabase_user.role
                 full_name = supabase_user.name
                 company_id = str(supabase_user.company_id) if supabase_user.company_id else None
-                
+
                 if supabase_user.company_id:
                     try:
                         company = Company.objects.get(id=supabase_user.company_id)
@@ -201,7 +201,7 @@ class AuthViewSet(viewsets.ViewSet):
                         company_name = "Unknown"
                 else:
                     company_name = "Unknown"
-                
+
                 print(f"✓ UsersAppUser found - role: {user_role}, temp_password: {temp_password}")
             except UsersAppUser.DoesNotExist:
                 print(f"⚠️ UsersAppUser NOT found either")
@@ -240,10 +240,6 @@ class AuthViewSet(viewsets.ViewSet):
         """
         ✅ UNIFIED CHANGE TEMP PASSWORD FOR ALL USERS (Admin + HR/Manager/Employee)
         Path: /api/auth/change_temp_password/
-        
-        This endpoint handles:
-        - Admin users (updates company_admins table)
-        - HR/Manager/Employee users (updates users table via UsersAppUser)
         """
         print("\n" + "="*80)
         print("🔐 CHANGE TEMP PASSWORD (UNIFIED ENDPOINT)")
@@ -289,6 +285,7 @@ class AuthViewSet(viewsets.ViewSet):
         if user.check_password(old_password):
             password_valid = True
             print(f"✓ Old password valid (HASHED)")
+
         # Try plain text password
         elif user.password == old_password:
             password_valid = True
@@ -329,11 +326,10 @@ class AuthViewSet(viewsets.ViewSet):
             company_name = admin.company.name
             full_name = admin.full_name
             company_setup_completed = admin.company_setup_completed
-
             print(f"✓ CompanyAdmin updated - temp_password_set = False")
         except CompanyAdmin.DoesNotExist:
             print(f"⚠️ CompanyAdmin NOT found, checking UsersAppUser...")
-            
+
             # Update UsersAppUser if this is an HR/Manager/Employee user
             try:
                 supabase_user = UsersAppUser.objects.get(email=user.email)
@@ -341,13 +337,14 @@ class AuthViewSet(viewsets.ViewSet):
                 supabase_user.temp_password = False
                 supabase_user.password_changed_at = timezone.now()
                 supabase_user.save()
+
                 supabase_user = UsersAppUser.objects.get(email=user.email)
                 temp_password = supabase_user.temp_password
                 profile_completed = supabase_user.profile_completed
                 user_role = supabase_user.role
                 full_name = supabase_user.name
                 company_id = str(supabase_user.company_id) if supabase_user.company_id else None
-                
+
                 if supabase_user.company_id:
                     try:
                         company = Company.objects.get(id=supabase_user.company_id)
@@ -378,33 +375,35 @@ class AuthViewSet(viewsets.ViewSet):
                     'full_name': full_name,
                     'company_id': company_id,
                     'company_name': company_name,
-                    'temp_password': False,  # ✅ Set to False
+                    'temp_password': False,
                     'company_setup_completed': company_setup_completed,
                     'profile_completed': profile_completed,
-                    'role': user_role,  # ✅ THIS IS THE KEY LINE!
+                    'role': user_role,
                 }
             }
         }
-
-        print(f"\n✅ PASSWORD CHANGED SUCCESSFULLY")
-        print(f"Response Role: {user_role}")
-        print(f"Response Temp Password: {False}")
-        print("="*80 + "\n")
 
         return Response(response_data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='company_setup')
     def company_setup(self, request):
         """
-        Company first-time setup endpoint
+        Company first-time setup endpoint (UPDATED)
         Path: /api/auth/company_setup/
+        
+        Now creates/updates CompanyDetails table with:
+        - work_type: 'fixed_hours' or 'shift_based'
+        - start_time/end_time for fixed hours
+        - shift_duration_minutes for shift-based
+        - break_minutes configuration
+        - Leave days policy
         """
         try:
             user = request.user
             company_admin = CompanyAdmin.objects.get(user=user)
 
             print("\n" + "="*80)
-            print("🏢 COMPANY SETUP")
+            print("🏢 COMPANY SETUP (WITH COMPANYDETAILS)")
             print(f"Admin: {company_admin.full_name}")
             print(f"Company: {company_admin.company.name}")
             print("="*80)
@@ -421,6 +420,7 @@ class AuthViewSet(viewsets.ViewSet):
 
             # Validate request data
             serializer = CompanySetupSerializer(data=request.data)
+
             if not serializer.is_valid():
                 print(f"❌ Validation errors: {serializer.errors}")
                 return Response({
@@ -429,41 +429,87 @@ class AuthViewSet(viewsets.ViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             validated_data = serializer.validated_data
-            print(f"✓ Validated data: {validated_data}")
+            print(f"✓ Validated data received")
 
             # Get company
             company = company_admin.company
 
             # Update company info
-            company.name = validated_data.get('company_name', company.name)
-            company.website = validated_data.get('company_website', company.website or '')
+            company.name = validated_data.get('companyname', company.name)
+            company.website = validated_data.get('companywebsite', company.website or '')
             company.save()
             print(f"✓ Company updated: {company.name}")
 
-            # Update company admin setup info
-            company_admin.company_name = validated_data.get('company_name')
-            company_admin.company_website = validated_data.get('company_website', '')
-            company_admin.company_industry = validated_data.get('company_industry', '')
+            # ============================================
+            # CREATE/UPDATE COMPANYDETAILS TABLE (NEW)
+            # ============================================
+            
+            print(f"\n✨ Creating/Updating CompanyDetails...")
+            
+            details, created = CompanyDetails.objects.get_or_create(company=company)
+            
+            # Set basic info
+            details.total_employees = validated_data.get('totalemployees', 1)
+            details.break_minutes = validated_data.get('break_minutes', 60)
+            
+            # Set work type and related fields
+            details.work_type = validated_data['work_type']
+            
+            if details.work_type == 'fixed_hours':
+                details.start_time = validated_data.get('workinghoursstart')
+                details.end_time = validated_data.get('workinghoursend')
+                details.shift_duration_minutes = None
+                print(f"✓ Fixed hours: {details.start_time} - {details.end_time}")
+            
+            else:  # shift_based
+                details.shift_duration_minutes = validated_data.get('shift_duration_minutes')
+                details.start_time = None
+                details.end_time = None
+                print(f"✓ Shift duration: {details.shift_duration_minutes} minutes")
+            
+            # Set leave days
+            details.casual_leave_days = validated_data.get('casualleavedays', 0)
+            details.sick_leave_days = validated_data.get('sickleavedays', 0)
+            details.personal_leave_days = validated_data.get('personalleavedays', 0)
+            
+            details.save()
+            print(f"✓ CompanyDetails {'created' if created else 'updated'}")
+
+            # ============================================
+            # UPDATE COMPANYADMIN (FOR BACKWARD COMPATIBILITY)
+            # ============================================
+            
+            company_admin.company_name = validated_data.get('companyname')
+            company_admin.company_website = validated_data.get('companywebsite', '')
+            company_admin.company_industry = validated_data.get('companyindustry', '')
             company_admin.timezone = validated_data.get('timezone', 'IST')
             company_admin.currency = validated_data.get('currency', 'INR')
-            company_admin.total_employees = validated_data.get('total_employees', 0)
-            company_admin.working_hours_start = validated_data.get('working_hours_start', '09:00')
-            company_admin.working_hours_end = validated_data.get('working_hours_end', '18:00')
-            company_admin.casual_leave_days = validated_data.get('casual_leave_days', 12)
-            company_admin.sick_leave_days = validated_data.get('sick_leave_days', 6)
-            company_admin.personal_leave_days = validated_data.get('personal_leave_days', 2)
-
+            company_admin.total_employees = validated_data.get('totalemployees', 0)
+            company_admin.working_hours_start = validated_data.get('workinghoursstart')
+            company_admin.working_hours_end = validated_data.get('workinghoursend')
+            company_admin.casual_leave_days = validated_data.get('casualleavedays', 12)
+            company_admin.sick_leave_days = validated_data.get('sickleavedays', 6)
+            company_admin.personal_leave_days = validated_data.get('personalleavedays', 2)
+            
             # Mark setup as completed
             company_admin.company_setup_completed = True
             company_admin.setup_completed_at = timezone.now()
             company_admin.save()
 
+            print(f"✓ CompanyAdmin updated")
             print(f"✓ Setup completed at: {company_admin.setup_completed_at}")
             print("="*80 + "\n")
 
             return Response({
                 'success': True,
-                'message': 'Company setup completed successfully'
+                'message': 'Company setup completed successfully',
+                'data': {
+                    'company_id': str(company.id),
+                    'company_name': company.name,
+                    'work_type': details.work_type,
+                    'total_employees': details.total_employees,
+                    'break_minutes': details.break_minutes
+                }
             }, status=status.HTTP_200_OK)
 
         except CompanyAdmin.DoesNotExist:
@@ -471,8 +517,10 @@ class AuthViewSet(viewsets.ViewSet):
                 'success': False,
                 'error': 'Company admin not found'
             }, status=status.HTTP_404_NOT_FOUND)
+
         except Exception as e:
             print(f"❌ Setup error: {str(e)}")
+            logger.exception("Company setup error: %s", e)
             return Response({
                 'success': False,
                 'error': str(e)
@@ -482,18 +530,6 @@ class AuthViewSet(viewsets.ViewSet):
     def add_hr(self, request):
         """
         ✅ CORRECTED: Add HR Manager using PERSONAL EMAIL as login
-        Flow:
-        1. Admin provides: name + personal_email (e.g., zeelp1696@gmail.com)
-        2. System creates Django User with username = personal_email
-        3. HR receives credentials for their PERSONAL EMAIL
-        4. HR logins with personal_email + temp_password
-        5. Creates corresponding Supabase user record
-
-        Key Changes:
-        - Use personal_email as Django username (NOT generated email)
-        - Generate UUID for Supabase id field
-        - Check duplicates in both tables before creation
-        - HR logs in with personal_email, not company email
         """
         try:
             # Step 1: Get company from requesting admin
@@ -533,10 +569,9 @@ class AuthViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Step 4: Check for duplicates (CRITICAL)
+            # Step 4: Check for duplicates
             print(f"\n🔍 Checking for duplicates...")
 
-            # Check Django auth_user table
             if User.objects.filter(username=personal_email).exists():
                 print(f"❌ DUPLICATE: Django User username '{personal_email}' already exists")
                 return Response(
@@ -544,7 +579,6 @@ class AuthViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Check Supabase users table
             if UsersAppUser.objects.filter(email=personal_email).exists():
                 print(f"❌ DUPLICATE: Supabase user with email '{personal_email}' already exists")
                 return Response(
@@ -581,7 +615,6 @@ class AuthViewSet(viewsets.ViewSet):
                     print(f" ✓ Django User created")
                     print(f" Username: {django_user.username}")
                     print(f" Email: {django_user.email}")
-                    print(f" ID (Django): {django_user.id}")
 
                     # ✅ Create UsersAppUser (Supabase users table)
                     hr_create_kwargs = {
@@ -597,23 +630,15 @@ class AuthViewSet(viewsets.ViewSet):
                         'employee_type': 'permanent',
                     }
 
-                    # Filter to only allowed fields
                     allowed_field_names = {f.name for f in UsersAppUser._meta.fields}
                     filtered_kwargs = {
                         k: v for k, v in hr_create_kwargs.items()
                         if k in allowed_field_names and v is not None
                     }
 
-                    print(f"\n Creating Supabase user with fields:")
-                    for k, v in filtered_kwargs.items():
-                        if k != 'password_hash':
-                            print(f" - {k}: {v}")
-
                     hr_user = UsersAppUser.objects.create(**filtered_kwargs)
-
                     print(f" ✓ Supabase User created")
                     print(f" Email: {hr_user.email}")
-                    print(f" ID (Supabase): {hr_user.id}")
 
                     # ✅ Hash password if supported
                     try:
@@ -632,32 +657,17 @@ class AuthViewSet(viewsets.ViewSet):
                 logger.exception("IntegrityError when creating HR user: %s", ie)
 
                 if 'duplicate' in error_str or 'unique constraint' in error_str:
-                    return Response(
-                        {
-                            'success': False,
-                            'error': 'Email already exists. Please use a different email address.',
-                            'detail': error_str
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                elif 'null' in error_str or 'NOT NULL' in error_str:
-                    return Response(
-                        {
-                            'success': False,
-                            'error': 'Missing required field. Please ensure all fields are provided.',
-                            'detail': error_str
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    return Response({
+                        'success': False,
+                        'error': 'Email already exists. Please use a different email address.',
+                        'detail': error_str
+                    }, status=status.HTTP_400_BAD_REQUEST)
                 else:
-                    return Response(
-                        {
-                            'success': False,
-                            'error': 'Failed to create user due to database constraint violation.',
-                            'detail': error_str
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    return Response({
+                        'success': False,
+                        'error': 'Failed to create user due to database constraint violation.',
+                        'detail': error_str
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
             except Exception as exc:
                 print(f"❌ UNEXPECTED ERROR: {str(exc)}")
@@ -667,7 +677,7 @@ class AuthViewSet(viewsets.ViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
-            # Step 7: Send invitation email to personal email
+            # Step 7: Send invitation email
             try:
                 print(f"\n📧 Sending invitation email to {personal_email}...")
                 CompanyEmailService.send_hr_invitation(
@@ -686,31 +696,24 @@ class AuthViewSet(viewsets.ViewSet):
             # Step 8: Return success response
             print(f"\n✅ HR MANAGER ADDED SUCCESSFULLY")
             print(f" Login with: {personal_email}")
-            print(f" Temp password sent to: {personal_email}")
             print("="*80 + "\n")
 
             response_message = f'HR Manager {name} created successfully. Check {personal_email} for login credentials.'
             if not email_sent:
                 response_message += ' (Note: Email delivery failed)'
 
-            return Response(
-                {
-                    'success': True,
-                    'message': response_message,
-                    'data': {
-                        'id': user_id,
-                        'name': name,
-                        'email': personal_email,
-                        'role': 'hr',
-                        'company_id': str(company.id),
-                        'company_name': company.name,
-                        'login_email': personal_email,
-                        'temp_password': temp_password,
-                        'instructions': f'HR Manager {name} can login at your app with email {personal_email} and the temporary password. They must change it on first login.'
-                    }
-                },
-                status=status.HTTP_201_CREATED
-            )
+            return Response({
+                'success': True,
+                'message': response_message,
+                'data': {
+                    'id': user_id,
+                    'name': name,
+                    'email': personal_email,
+                    'role': 'hr',
+                    'company_id': str(company.id),
+                    'company_name': company.name,
+                }
+            }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             print(f"❌ CRITICAL ERROR: {str(e)}")
@@ -720,7 +723,6 @@ class AuthViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='add_manager')
     def add_manager(self, request):
         """
@@ -728,188 +730,78 @@ class AuthViewSet(viewsets.ViewSet):
         - Accepts: name, email, role
         - Creates Django auth.User
         - Creates UsersAppUser with that role
-        - Sends temp password to given email
         """
         try:
             print("\n" + "=" * 80)
             print("➕ ADD MANAGER / HR / EMPLOYEE")
             print("=" * 80)
-            
-            # DEBUG 1: Check authentication
-            print(f"\n[DEBUG 1] Authentication Check:")
-            print(f"  User authenticated: {request.user.is_authenticated}")
-            print(f"  User email: {request.user.email}")
-            print(f"  User ID: {request.user.id}")
-            
-            # DEBUG 2: Check company admin
-            print(f"\n[DEBUG 2] Getting Company Admin:")
+
+            # Get company admin
             try:
                 company_admin = CompanyAdmin.objects.get(user=request.user)
                 company = company_admin.company
-                print(f"  ✓ CompanyAdmin found: {company_admin.full_name}")
-                print(f"  ✓ Company: {company.name}")
+                print(f" ✓ CompanyAdmin found: {company_admin.full_name}")
+                print(f" ✓ Company: {company.name}")
             except CompanyAdmin.DoesNotExist:
-                print(f"  ✗ CompanyAdmin NOT found for user {request.user.email}")
+                print(f" ✗ CompanyAdmin NOT found")
                 return Response(
                     {'success': False, 'error': 'Company admin not found'},
-                    status=status.HTTP_404_NOT_FOUND,
+                    status=status.HTTP_404_NOT_FOUND
                 )
-            
-            # DEBUG 3: Check request data
-            print(f"\n[DEBUG 3] Request Data:")
-            print(f"  Raw request.data: {request.data}")
-            print(f"  Type: {type(request.data)}")
-            
+
+            # Get and validate input
             name = (request.data.get('name') or "").strip()
             email = (request.data.get('email') or "").strip().lower()
             role = (request.data.get('role') or "").strip().lower()
-            
-            print(f"  Parsed name: '{name}' (length: {len(name)})")
-            print(f"  Parsed email: '{email}' (length: {len(email)})")
-            print(f"  Parsed role: '{role}' (length: {len(role)})")
-            
-            # DEBUG 4: Validate required fields
-            print(f"\n[DEBUG 4] Field Validation:")
-            if not name:
-                print(f"  ✗ Name is empty")
+
+            print(f"\n📝 Input: name='{name}', email='{email}', role='{role}'")
+
+            # Validation
+            if not name or not email or not role:
                 return Response(
-                    {'success': False, 'error': 'Name is required'},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    {'success': False, 'error': 'Name, email, and role are required'},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-            print(f"  ✓ Name provided")
-            
-            if not email:
-                print(f"  ✗ Email is empty")
-                return Response(
-                    {'success': False, 'error': 'Email is required'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            print(f"  ✓ Email provided")
-            
-            if not role:
-                print(f"  ✗ Role is empty")
-                return Response(
-                    {'success': False, 'error': 'Role is required'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            print(f"  ✓ Role provided")
-            
-            # DEBUG 5: Validate role value
-            print(f"\n[DEBUG 5] Role Validation:")
+
+            # Validate role
             valid_roles = ['manager', 'hr', 'employee']
-            print(f"  Valid roles: {valid_roles}")
-            print(f"  Provided role: '{role}'")
-            
             if role not in valid_roles:
-                print(f"  ✗ Role '{role}' not in valid roles")
                 return Response(
                     {'success': False, 'error': f'Invalid role. Use {", ".join(valid_roles)}.'},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-            print(f"  ✓ Role '{role}' is valid")
-            
-            # DEBUG 6: Email format validation
-            print(f"\n[DEBUG 6] Email Format Validation:")
+
+            # Email format validation
             email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-            print(f"  Pattern: {email_pattern}")
-            print(f"  Email: {email}")
-            
             if not re.match(email_pattern, email):
-                print(f"  ✗ Email format invalid")
                 return Response(
                     {'success': False, 'error': 'Invalid email format'},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-            print(f"  ✓ Email format valid")
-            
-            # DEBUG 7: Check for duplicates
-            print(f"\n[DEBUG 7] Checking for Duplicates:")
-            print(f"  Checking Django auth_user table...")
-            django_user_exists = User.objects.filter(username=email).exists()
-            print(f"    Django User exists: {django_user_exists}")
-            
-            if django_user_exists:
-                print(f"  ✗ DUPLICATE: Django User with username '{email}' already exists")
+
+            # Check for duplicates
+            if User.objects.filter(username=email).exists():
                 return Response(
                     {'success': False, 'error': f'Email {email} is already registered'},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            print(f"  Checking UsersAppUser table...")
-            app_user_exists = UsersAppUser.objects.filter(email=email).exists()
-            print(f"    UsersAppUser exists: {app_user_exists}")
-            
-            if app_user_exists:
-                print(f"  ✗ DUPLICATE: UsersAppUser with email '{email}' already exists")
+
+            if UsersAppUser.objects.filter(email=email).exists():
                 return Response(
                     {'success': False, 'error': f'Email {email} is already registered in system'},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            print(f"  ✓ No duplicates found")
-            
-            # DEBUG 8: Check database connection
-            print(f"\n[DEBUG 8] Database Connection Check:")
-            try:
-                total_users_django = User.objects.count()
-                total_users_app = UsersAppUser.objects.count()
-                print(f"  ✓ Django User count: {total_users_django}")
-                print(f"  ✓ UsersAppUser count: {total_users_app}")
-            except Exception as db_err:
-                print(f"  ✗ Database error: {str(db_err)}")
-                return Response(
-                    {'success': False, 'error': f'Database connection error: {str(db_err)}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-            
-            # DEBUG 9: Generate credentials
-            print(f"\n[DEBUG 9] Generating Credentials:")
+
+            # Generate credentials
             temp_password = secrets.token_urlsafe(12)
             user_id = str(uuid.uuid4())
-            print(f"  User ID: {user_id}")
-            print(f"  Temp Password: {temp_password[:8]}...")
-            print(f"  Login Email: {email}")
-            
-            # DEBUG 10: Check UsersAppUser model fields
-            print(f"\n[DEBUG 10] UsersAppUser Model Fields:")
-            allowed_field_names = {f.name for f in UsersAppUser._meta.fields}
-            print(f"  Available fields: {allowed_field_names}")
-            
-            user_create_kwargs = {
-                'id': user_id,
-                'email': email,
-                'name': name,
-                'role': role,
-                'company_id': company.id,
-                'temp_password': True,
-                'profile_completed': False,
-                'is_active': True,
-                'status': 'active',
-                'employee_type': 'permanent',
-            }
-            
-            print(f"\n  Prepared kwargs:")
-            for k, v in user_create_kwargs.items():
-                print(f"    - {k}: {v}")
-            
-            filtered_kwargs = {
-                k: v
-                for k, v in user_create_kwargs.items()
-                if k in allowed_field_names and v is not None
-            }
-            
-            print(f"\n  After filtering (only valid fields):")
-            for k, v in filtered_kwargs.items():
-                print(f"    - {k}: {v}")
-            
-            # DEBUG 11: Create transaction
-            print(f"\n[DEBUG 11] Starting Transaction:")
+
+            print(f"\n🔐 Generated: password={temp_password[:8]}..., id={user_id}")
+
+            # Create users
             try:
                 with transaction.atomic():
-                    print(f"  Transaction started...")
-                    
                     # Create Django user
-                    print(f"\n  Creating Django User...")
                     django_user = User.objects.create_user(
                         username=email,
                         email=email,
@@ -918,44 +810,53 @@ class AuthViewSet(viewsets.ViewSet):
                         last_name=' '.join(name.split()[1:]) if len(name.split()) > 1 else '',
                         date_joined=timezone.now(),
                     )
-                    print(f"    ✓ Django User created with ID: {django_user.id}")
-                    
+                    print(f" ✓ Django User created")
+
                     # Create UsersAppUser
-                    print(f"\n  Creating UsersAppUser...")
-                    print(f"    Kwargs: {filtered_kwargs}")
-                    
+                    allowed_field_names = {f.name for f in UsersAppUser._meta.fields}
+                    user_kwargs = {
+                        'id': user_id,
+                        'email': email,
+                        'name': name,
+                        'role': role,
+                        'company_id': company.id,
+                        'temp_password': True,
+                        'profile_completed': False,
+                        'is_active': True,
+                        'status': 'active',
+                        'employee_type': 'permanent',
+                    }
+                    filtered_kwargs = {
+                        k: v for k, v in user_kwargs.items()
+                        if k in allowed_field_names and v is not None
+                    }
+
                     supabase_user = UsersAppUser.objects.create(**filtered_kwargs)
-                    
-                    print(f"    ✓ UsersAppUser created with ID: {supabase_user.id}")
-                    
+                    print(f" ✓ UsersAppUser created")
+
                     # Hash password if supported
                     if hasattr(supabase_user, "set_password"):
                         supabase_user.set_password(temp_password)
                         supabase_user.save()
-                        print(f"    ✓ Password hashed")
-                    
-                    print(f"\n  ✓ Transaction committed successfully")
-                    
+                        print(f" ✓ Password hashed")
+
             except IntegrityError as ie:
                 error_str = str(ie)
-                print(f"  ✗ IntegrityError: {error_str}")
+                print(f" ✗ IntegrityError: {error_str}")
                 return Response(
                     {'success': False, 'error': f'Database constraint violation: {error_str}'},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status=status.HTTP_400_BAD_REQUEST
                 )
+
             except Exception as exc:
-                print(f"  ✗ Transaction error: {str(exc)}")
-                import traceback
-                traceback.print_exc()
+                print(f" ✗ Transaction error: {str(exc)}")
                 return Response(
                     {'success': False, 'error': f'Failed to create user: {str(exc)}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-            
-            # DEBUG 12: Send email
-            print(f"\n[DEBUG 12] Sending Email:")
+
+            # Send email
             try:
-                print(f"  Attempting to send email to {email}...")
                 CompanyEmailService.send_hr_invitation(
                     personal_email=email,
                     company_name=company.name,
@@ -963,48 +864,37 @@ class AuthViewSet(viewsets.ViewSet):
                     temp_password=temp_password,
                 )
                 email_sent = True
-                print(f"  ✓ Email sent successfully")
+                print(f" ✓ Email sent")
             except Exception as e:
-                print(f"  ✗ Email sending failed: {str(e)}")
+                print(f" ⚠️ Email failed: {str(e)}")
                 email_sent = False
-            
-            # DEBUG 13: Success response
-            print(f"\n[DEBUG 13] Success Response:")
+
+            print(f"\n✅ OPERATION COMPLETED SUCCESSFULLY")
+            print("=" * 80 + "\n")
+
             message = f"User {name} created successfully as {role}."
             if not email_sent:
                 message += " (Note: Email delivery failed)"
-            
-            print(f"  Message: {message}")
-            print(f"  Response data prepared")
-            
-            print(f"\n✅ OPERATION COMPLETED SUCCESSFULLY")
-            print("=" * 80 + "\n")
-            
-            return Response(
-                {
-                    'success': True,
-                    'message': message,
-                    'data': {
-                        'id': user_id,
-                        'name': name,
-                        'email': email,
-                        'role': role,
-                        'company_id': str(company.id),
-                        'company_name': company.name,
-                    },
-                },
-                status=status.HTTP_201_CREATED,
-            )
-            
+
+            return Response({
+                'success': True,
+                'message': message,
+                'data': {
+                    'id': user_id,
+                    'name': name,
+                    'email': email,
+                    'role': role,
+                    'company_id': str(company.id),
+                    'company_name': company.name,
+                }
+            }, status=status.HTTP_201_CREATED)
+
         except Exception as e:
             print(f"\n❌ CRITICAL ERROR: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            print("=" * 80 + "\n")
-            
+            logger.exception("Failed to add user: %s", e)
             return Response(
                 {'success': False, 'error': f'Failed to add user: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(detail=False, methods=['get', 'put'], url_path='appearance')
@@ -1044,7 +934,6 @@ class AuthViewSet(viewsets.ViewSet):
             }
         })
 
-
 # ============================================
 # ADMIN DASHBOARD VIEWSET
 # ============================================
@@ -1059,12 +948,10 @@ class AdminDashboardViewSet(viewsets.ViewSet):
     - GET /api/admin/notifications/
     - PUT /api/admin/notifications/
     - GET /api/admin/sessions/
-    - PUT /api/admin/appearance/
     """
 
     permission_classes = [IsAuthenticated]
 
-    # PROFILE
     @action(detail=False, methods=['get', 'put'], url_path='profile')
     def profile(self, request):
         user = request.user
@@ -1081,7 +968,6 @@ class AdminDashboardViewSet(viewsets.ViewSet):
                     'full_name': admin.full_name,
                     'email': user.email,
                     'phone': admin.phone or '',
-                    'avatar': admin.avatar.url if getattr(admin, 'avatar', None) else None,
                     'company_name': admin.company_name or admin.company.name,
                     'company_website': admin.company_website or '',
                     'company_industry': admin.company_industry or '',
@@ -1102,30 +988,42 @@ class AdminDashboardViewSet(viewsets.ViewSet):
             admin.full_name = data['full_name']
             user.first_name = data['full_name'].split()[0] if data['full_name'] else ''
             user.save()
+
         if 'phone' in data:
             admin.phone = data['phone']
+
         if 'company_name' in data:
             admin.company_name = data['company_name']
             admin.company.name = data['company_name']
             admin.company.save()
+
         if 'company_website' in data:
             admin.company_website = data['company_website']
+
         if 'company_industry' in data:
             admin.company_industry = data['company_industry']
+
         if 'total_employees' in data:
             admin.total_employees = int(data['total_employees'] or 0)
+
         if 'timezone' in data:
             admin.timezone = data['timezone']
+
         if 'currency' in data:
             admin.currency = data['currency']
+
         if 'working_hours_start' in data:
             admin.working_hours_start = data['working_hours_start']
+
         if 'working_hours_end' in data:
             admin.working_hours_end = data['working_hours_end']
+
         if 'casual_leave_days' in data:
             admin.casual_leave_days = int(data['casual_leave_days'] or 0)
+
         if 'sick_leave_days' in data:
             admin.sick_leave_days = int(data['sick_leave_days'] or 0)
+
         if 'personal_leave_days' in data:
             admin.personal_leave_days = int(data['personal_leave_days'] or 0)
 
@@ -1136,7 +1034,6 @@ class AdminDashboardViewSet(viewsets.ViewSet):
             'message': 'Profile updated successfully'
         })
 
-    # AVATAR
     @action(detail=False, methods=['post'], url_path='avatar')
     def avatar(self, request):
         user = request.user
@@ -1164,7 +1061,6 @@ class AdminDashboardViewSet(viewsets.ViewSet):
             'data': {'avatar_url': admin.avatar.url if admin.avatar else None}
         })
 
-    # NOTIFICATIONS
     @action(detail=False, methods=['get', 'put'], url_path='notifications')
     def notifications(self, request):
         if request.method == 'GET':
@@ -1195,7 +1091,6 @@ class AdminDashboardViewSet(viewsets.ViewSet):
             'data': data
         })
 
-    # SESSIONS
     @action(detail=False, methods=['get'], url_path='sessions')
     def sessions(self, request):
         return Response({

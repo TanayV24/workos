@@ -30,3 +30,4 @@ urlpatterns = [
     path('api/auth/add_hr/', add_hr_view, name='add-hr-explicit'),  # explicit guaranteed route
     path('api/auth/add_manager/', add_manager_view, name='add-manager-explicit'),  # NEW
 ]
+    

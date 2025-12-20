@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Company, CompanyAdmin, CompanyRegistrationToken
+from .models import Company, CompanyAdmin, CompanyRegistrationToken, CompanyDetails
 from datetime import timedelta
 from django.utils import timezone
 import secrets
@@ -49,7 +49,7 @@ class CompanyAdminCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         from .email import CompanyEmailService
-        
+
         company_id = validated_data['company_id']
         personal_email = validated_data['personal_email']
         full_name = validated_data['full_name']
@@ -58,7 +58,7 @@ class CompanyAdminCreateSerializer(serializers.Serializer):
         company = Company.objects.get(id=company_id)
         temp_company_email = f"admin@{company.code.lower()}.com"
         temp_password = secrets.token_urlsafe(12)
-        
+
         user = User.objects.create_user(
             username=temp_company_email,
             email=temp_company_email,
@@ -66,7 +66,7 @@ class CompanyAdminCreateSerializer(serializers.Serializer):
             first_name=full_name.split()[0] if full_name.split() else 'Admin',
             last_name=' '.join(full_name.split()[1:]) if len(full_name.split()) > 1 else ''
         )
-        
+
         admin = CompanyAdmin.objects.create(
             user=user,
             company=company,
@@ -75,7 +75,7 @@ class CompanyAdminCreateSerializer(serializers.Serializer):
             phone=phone,
             temp_password_set=True
         )
-        
+
         token = CompanyRegistrationToken.objects.create(
             company=company,
             token=secrets.token_urlsafe(32),
@@ -84,7 +84,7 @@ class CompanyAdminCreateSerializer(serializers.Serializer):
             temp_password=temp_password,
             expires_at=timezone.now() + timedelta(hours=72)
         )
-        
+
         try:
             CompanyEmailService.send_admin_credentials(
                 personal_email=personal_email,
@@ -169,70 +169,103 @@ class DashboardDataSerializer(serializers.Serializer):
 
 
 # ==========================================
-# 6. COMPANY SETUP SERIALIZER (NEW)
+# 6. COMPANY DETAILS SERIALIZER (NEW)
+# ==========================================
+
+class CompanyDetailsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompanyDetails
+        fields = [
+            'total_employees',
+            'work_type',
+            'start_time',
+            'end_time',
+            'shift_duration_minutes',
+            'break_minutes',
+            'casual_leave_days',
+            'sick_leave_days',
+            'personal_leave_days',
+            'overtime_allowed',
+            'max_overtime_minutes',
+            'weekend_work_allowed',
+            'flexible_hours',
+        ]
+
+
+# ==========================================
+# 7. COMPANY SETUP SERIALIZER (UPDATED)
 # ==========================================
 
 class CompanySetupSerializer(serializers.Serializer):
-    company_name = serializers.CharField(max_length=255, required=True)
-    company_website = serializers.URLField(required=False, allow_blank=True)
-    company_industry = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    """
+    Updated to use CompanyDetails table instead of storing in CompanyAdmin
+    """
+    # Company info
+    companyname = serializers.CharField(max_length=255, required=True)
+    companywebsite = serializers.CharField(required=False, allow_blank=True)
+    companyindustry = serializers.CharField(max_length=100, required=False, allow_blank=True)
     timezone = serializers.CharField(max_length=50, required=False, default='IST')
     currency = serializers.CharField(max_length=10, required=False, default='INR')
-    total_employees = serializers.IntegerField(required=False, default=0, min_value=0)
-    working_hours_start = serializers.CharField(max_length=10, required=False, default='09:00')  # Changed to CharField
-    working_hours_end = serializers.CharField(max_length=10, required=False, default='18:00')    # Changed to CharField
-    casual_leave_days = serializers.IntegerField(required=False, default=12, min_value=0)
-    sick_leave_days = serializers.IntegerField(required=False, default=6, min_value=0)
-    personal_leave_days = serializers.IntegerField(required=False, default=2, min_value=0)
-    managers = serializers.ListField(
-        child=serializers.DictField(
-            child=serializers.CharField(allow_blank=True, required=False),
-            required=False
-        ),
-        required=False,
-        allow_empty=True
+
+    # Company Details fields
+    totalemployees = serializers.IntegerField(required=True, min_value=1)
+
+    # Work type: 'fixed_hours' or 'shift_based'
+    work_type = serializers.ChoiceField(
+        choices=['fixed_hours', 'shift_based'],
+        required=True
     )
 
-    def validate_company_name(self, value):
+    # Fixed hours (used when work_type = 'fixed_hours')
+    workinghoursstart = serializers.TimeField(required=False, allow_null=True)
+    workinghoursend = serializers.TimeField(required=False, allow_null=True)
+
+    # Shift based (used when work_type = 'shift_based')
+    shift_duration_minutes = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+
+    # Break configuration (default 1 hour / 60 minutes)
+    break_minutes = serializers.IntegerField(required=False, default=60, min_value=0)
+
+    # Leave policy
+    casualleavedays = serializers.IntegerField(required=False, default=0, min_value=0)
+    sickleavedays = serializers.IntegerField(required=False, default=0, min_value=0)
+    personalleavedays = serializers.IntegerField(required=False, default=0, min_value=0)
+
+    def validate_companyname(self, value):
         if not value.strip():
             raise serializers.ValidationError("Company name cannot be empty")
         return value
-    
-    # ✅ NEW: Filter and validate managers
-    def validate_managers(self, value):
+
+    def validate(self, attrs):
         """
-        Filter out empty managers and validate remaining ones
+        Validate work_type specific requirements
         """
-        if not value:
-            return []
-        
-        # Filter out managers with empty name AND email
-        valid_managers = []
-        for manager in value:
-            name = manager.get('name', '').strip() if isinstance(manager.get('name'), str) else ''
-            email = manager.get('email', '').strip() if isinstance(manager.get('email'), str) else ''
-            
-            # Only add if BOTH name and email are present
-            if name and email:
-                valid_managers.append({
-                    'name': name,
-                    'email': email
-                })
-        
-        return valid_managers
-    
-    # ✅ NEW: Overall validation
-    def validate(self, data):
-        """
-        Overall validation - ensure company_name is provided
-        """
-        if not data.get('company_name', '').strip():
-            raise serializers.ValidationError({'company_name': 'Company name is required'})
-        
-        return data
+        work_type = attrs.get('work_type')
+
+        if work_type == 'fixed_hours':
+            # Require start and end times for fixed hours
+            if not attrs.get('workinghoursstart') or not attrs.get('workinghoursend'):
+                raise serializers.ValidationError(
+                    "Start time and end time are required for fixed_hours work type."
+                )
+            # Shift duration should be None for fixed_hours
+            attrs['shift_duration_minutes'] = None
+
+        elif work_type == 'shift_based':
+            # Require shift duration for shift-based
+            if not attrs.get('shift_duration_minutes'):
+                raise serializers.ValidationError(
+                    "shift_duration_minutes is required for shift_based work type."
+                )
+            # Start/end times should be None for shift_based
+            attrs['workinghoursstart'] = None
+            attrs['workinghoursend'] = None
+
+        return attrs
+
 
 # ==========================================
-# 7. PROFILE & NOTIFICATION SERIALIZERS
+# 8. PROFILE & NOTIFICATION SERIALIZERS
 # ==========================================
 
 class ProfileUpdateSerializer(serializers.Serializer):
