@@ -73,6 +73,7 @@ interface Shift {
   endTime?: string
   requiredHours?: number
   description?: string
+  is_default?: boolean
 }
 
 // ==========================================
@@ -138,7 +139,7 @@ const Onboarding: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false)
 
   const [shifts, setShifts] = useState<Shift[]>([
-    { work_type: 'fixed_hours', name: '', startTime: '', endTime: '', description: '' },
+    { work_type: setupForm.work_type, name: '', startTime: '', endTime: '', description: '' },
   ])
   const [selectedShiftIndex, setSelectedShiftIndex] = useState(0)
 
@@ -418,6 +419,8 @@ const Onboarding: React.FC = () => {
     }
   }
 
+
+  
  const handleCompanySetup = async () => {
   if (!setupForm.companyname.trim()) {
     toast({
@@ -476,6 +479,7 @@ const Onboarding: React.FC = () => {
     if (websiteUrl && !websiteUrl.startsWith('http://') && !websiteUrl.startsWith('https://')) {
       websiteUrl = `https://${websiteUrl}`
     }
+    console.log('🔍 DEBUG: shifts state =', shifts);  // ADD THIS LINE
 
     const payload: any = {
       companyname: setupForm.companyname,
@@ -489,12 +493,21 @@ const Onboarding: React.FC = () => {
       casualleavedays: setupForm.casualleavedays,
       sickleavedays: setupForm.sickleavedays,
       personalleavedays: setupForm.personalleavedays,
-      shift_duration_minutes: setupForm.shift_duration_minutes, // for scenario 2
-      shifts,                                                   // for scenario 3
+      shift_duration_minutes: setupForm.shift_duration_minutes, // for scenario 2        
       workinghoursstart: setupForm.workinghoursstart,           // for scenario 1
-      workinghoursend: setupForm.workinghoursend
+      workinghoursend: setupForm.workinghoursend,
+
+      shifts: shifts.map(shift => ({
+        name: shift.name,
+        startTime: shift.startTime,      // ✅ CRITICAL
+        endTime: shift.endTime,          // ✅ CRITICAL
+        requiredHours: shift.requiredHours,
+        description: shift.description,
+        is_default: shift.is_default,
+      })),
     }
 
+    console.log('📤 Payload being sent:', JSON.stringify(payload, null, 2));  // ADD THIS
     // Add data based on work type AND shift config mode
     if (setupForm.work_type === 'fixed_hours') {
       payload.workinghoursstart = setupForm.workinghoursstart
@@ -508,8 +521,8 @@ const Onboarding: React.FC = () => {
         payload.shifts = shifts.map((s) => ({
           work_type: s.work_type,
           name: s.name,
-          starttime: s.startTime || null,
-          endtime: s.endTime || null,
+          startTime: s.startTime || null,
+          endTime: s.endTime || null,
           requiredhoursperday: s.requiredHours ? Number(s.requiredHours) : null,
           description: s.description || null,
         }))
