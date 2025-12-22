@@ -26,8 +26,8 @@ function authHeaders() {
 }
 
 /* ---------------------------
-   Chat API helpers
-   --------------------------- */
+Chat API helpers
+--------------------------- */
 export const chatRest = {
   async getRooms(): Promise<Room[]> {
     const res = await fetch(`${API}/api/chat/rooms/`, {
@@ -38,6 +38,7 @@ export const chatRest = {
     }
     return res.json();
   },
+
   async getRoomMessages(roomId: string): Promise<Message[]> {
     const res = await fetch(`${API}/api/chat/rooms/${roomId}/messages/`, {
       headers: { ...authHeaders() },
@@ -47,6 +48,7 @@ export const chatRest = {
     }
     return res.json();
   },
+
   async postMessage(roomId: string, content: string) {
     const res = await fetch(`${API}/api/chat/rooms/${roomId}/messages/`, {
       method: "POST",
@@ -65,8 +67,8 @@ export const chatRest = {
 };
 
 /* ---------------------------
-   Auth & user helpers - UNIFIED
-   --------------------------- */
+Auth & user helpers - UNIFIED
+--------------------------- */
 export const authRest = {
   // ✅ UNIFIED LOGIN ENDPOINT FOR ALL USERS (Admin + HR/Manager/Employee)
   async login(email: string, password: string) {
@@ -155,6 +157,38 @@ export const authRest = {
     return res.json();
   },
 
+  // ✅ CREATE SHIFTS
+  async createShifts(companyId: string, shiftsData: any) {
+    const res = await fetch(`${API}/api/shifts/create/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+      },
+      body: JSON.stringify({
+        company_id: companyId,
+        shifts: shiftsData,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to create shifts");
+    }
+    return res.json();
+  },
+
+  // ✅ GET COMPANY SHIFTS
+  async getCompanyShifts(companyId: string) {
+    const res = await fetch(`${API}/api/shifts/list/?company_id=${companyId}`, {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to fetch shifts");
+    }
+    return res.json();
+  },
+
   // Logout
   async logout() {
     const res = await fetch(`${API}/api/auth/logout/`, {
@@ -172,8 +206,8 @@ export const authRest = {
 };
 
 /* ---------------------------
-   Users helpers
-   --------------------------- */
+Users helpers
+--------------------------- */
 export const usersRest = {
   // ✅ COMPLETE PROFILE ENDPOINT
   async completeProfile(data: {
@@ -219,8 +253,8 @@ export const usersRest = {
 };
 
 /* ---------------------------
-   ✅ Department Management (FIXED WITH ERROR HANDLING)
-   --------------------------- */
+✅ Department Management (FIXED WITH ERROR HANDLING)
+--------------------------- */
 export const departmentRest = {
   async addDepartment(data: {
     name: string;
@@ -228,8 +262,7 @@ export const departmentRest = {
     description: string;
   }) {
     try {
-      console.log('📤 Sending department data:', data);
-      
+      console.log("📤 Sending department data:", data);
       const res = await fetch(`${API}/api/users/add_department/`, {
         method: "POST",
         headers: {
@@ -244,7 +277,7 @@ export const departmentRest = {
       });
 
       const result = await res.json();
-      console.log('📨 Response:', result);
+      console.log("📨 Response:", result);
 
       if (!res.ok) {
         return {
@@ -260,7 +293,7 @@ export const departmentRest = {
         error: result.error,
       };
     } catch (error: any) {
-      console.error('❌ Exception:', error);
+      console.error("❌ Exception:", error);
       return {
         success: false,
         error: error.message || "Failed to add department",
@@ -270,8 +303,7 @@ export const departmentRest = {
 
   async listDepartments() {
     try {
-      console.log('📥 Fetching departments...');
-      
+      console.log("📥 Fetching departments...");
       const res = await fetch(`${API}/api/users/list_departments/`, {
         method: "GET",
         headers: {
@@ -289,15 +321,15 @@ export const departmentRest = {
       }
 
       const result = await res.json();
-      console.log('✅ Departments fetched:', result);
-      
+      console.log("✅ Departments fetched:", result);
+
       return {
         success: result.success !== false,
         data: result.data || result,
         error: result.error,
       };
     } catch (error: any) {
-      console.error('❌ Exception:', error);
+      console.error("❌ Exception:", error);
       return {
         success: false,
         data: [],
@@ -308,8 +340,8 @@ export const departmentRest = {
 };
 
 /* ---------------------------
-   ✅ Employee Management (FIXED WITH ERROR HANDLING)
-   --------------------------- */
+✅ Employee Management (FIXED WITH ERROR HANDLING)
+--------------------------- */
 export const userRest = {
   async addEmployee(data: {
     name: string;
@@ -318,8 +350,7 @@ export const userRest = {
     department_id: string;
   }) {
     try {
-      console.log('📤 Sending employee data:', data);
-      
+      console.log("📤 Sending employee data:", data);
       const res = await fetch(`${API}/api/users/add_employee/`, {
         method: "POST",
         headers: {
@@ -335,7 +366,7 @@ export const userRest = {
       });
 
       const result = await res.json();
-      console.log('📨 Response:', result);
+      console.log("📨 Response:", result);
 
       if (!res.ok) {
         return {
@@ -351,7 +382,7 @@ export const userRest = {
         error: result.error,
       };
     } catch (error: any) {
-      console.error('❌ Exception:', error);
+      console.error("❌ Exception:", error);
       return {
         success: false,
         error: error.message || "Failed to add employee",
@@ -359,7 +390,7 @@ export const userRest = {
     }
   },
 
-   async listEmployees() {
+  async listEmployees() {
     try {
       const res = await fetch(`${API}/api/users/list_employees/`, {
         method: "GET",

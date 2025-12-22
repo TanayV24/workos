@@ -1,6 +1,7 @@
 # companies/views.py - UNIFIED ENDPOINTS FOR ALL USERS
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -515,6 +516,116 @@ class AuthViewSet(viewsets.ViewSet):
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @api_view(['POST'])
+    @permission_classes([IsAuthenticated])
+    def create_shifts(request):
+        """Create shifts for company during onboarding"""
+        try:
+            company_id = request.data.get('company_id')
+            shifts_data = request.data.get('shifts', [])
+            selected_shift_id = request.data.get('selected_shift_id')
+
+            with connection.cursor() as cursor:
+                created_shifts = []
+                for shift_data in shifts_data:
+                    cursor.execute("""
+                        INSERT INTO public.shift 
+                        (company_id, work_type, name, start_time, end_time, required_hours_per_day, description)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id, name, work_type, start_time, end_time, required_hours_per_day
+                    """, [
+                        company_id,
+                        shift_data.get('work_type', 'fixed_hours'),
+                        shift_data.get('name'),
+                        shift_data.get('start_time'),
+                        shift_data.get('end_time'),
+                        shift_data.get('required_hours_per_day'),
+                        shift_data.get('description', '')
+                    ])
+                    
+                    shift = cursor.fetchone()
+                    if shift:
+                        created_shifts.append({
+                            'id': str(shift[0]),
+                            'name': shift[1],
+                            'work_type': shift[2],
+                            'start_time': str(shift[3]) if shift[3] else None,
+                            'end_time': str(shift[4]) if shift[4] else None,
+                            'required_hours_per_day': float(shift[5]) if shift[5] else None,
+                        })
+
+            return Response({
+                'success': True,
+                'message': f'{len(created_shifts)} shifts created',
+                'shifts': created_shifts
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+    # ✅ GET COMPANY SHIFTS
+    @api_view(['GET'])
+    @permission_classes([IsAuthenticated])
+    def get_company_shifts(request):
+        """Get all shifts for a company"""
+        try:
+            company_id = request.query_params.get('company_id')
+
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, name, work_type, start_time, end_time, required_hours_per_day
+                    FROM public.shift
+                    WHERE company_id = %s AND is_active = true
+                    ORDER BY start_time
+                """, [company_id])
+
+                shifts = []
+                for row in cursor.fetchall():
+                    shifts.append({
+                        'id': str(row[0]),
+                        'name': row[1],
+                        'work_type': row[2],
+                        'start_time': str(row[3]) if row[3] else None,
+                        'end_time': str(row[4]) if row[4] else None,
+                        'required_hours_per_day': float(row[5]) if row[5] else None,
+                    })
+
+            return Response({'success': True, 'shifts': shifts}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+    # ✅ ASSIGN SHIFT TO EMPLOYEE
+    @api_view(['PATCH'])
+    @permission_classes([IsAuthenticated])
+    def assign_shift_to_employee(request):
+        """Assign default shift to a new employee"""
+        try:
+            user_id = request.data.get('user_id')
+            shift_id = request.data.get('shift_id')
+
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE public.users
+                    SET shift_id = %s
+                    WHERE id = %s
+                    RETURNING id
+                """, [shift_id, user_id])
+
+                result = cursor.fetchone()
+                if result:
+                    return Response({
+                        'success': True,
+                        'message': 'Shift assigned'
+                    }, status=status.HTTP_200_OK)
+                
+                return Response({'success': False, 'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='add_hr')

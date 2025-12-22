@@ -29,5 +29,8 @@ urlpatterns = [
     path('api/', include(router.urls)),           # normal router (e.g. /api/auth/)
     path('api/auth/add_hr/', add_hr_view, name='add-hr-explicit'),  # explicit guaranteed route
     path('api/auth/add_manager/', add_manager_view, name='add-manager-explicit'),  # NEW
+    path('shifts/create/', create_shifts),
+    path('shifts/list/', get_company_shifts),
+    path('shifts/assign/', assign_shift_to_employee),
 ]
     

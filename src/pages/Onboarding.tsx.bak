@@ -36,13 +36,17 @@ interface CompanySetupData {
 
   totalemployees: number
 
+  // Work type: 'fixed_hours' or 'shift_based'
   work_type: 'fixed_hours' | 'shift_based'
 
+  // Fixed hours
   workinghoursstart: string
   workinghoursend: string
 
+  // Shift based
   shift_duration_minutes: number | null
 
+  // Break config
   break_minutes: number
 
   casualleavedays: number
@@ -81,19 +85,25 @@ interface Shift {
 
 const Onboarding: React.FC = () => {
   const navigate = useNavigate()
-  const { user, updateUserData } = useAuth()
+  const { user, updateUserData, accessToken } = useAuth()
 
+  // Only company_admin should access this page
   React.useEffect(() => {
     if (user?.role !== 'company_admin') {
       window.location.href = '/dashboard'
     }
   }, [user?.role])
 
+  // ==========================================
+  // STATE MANAGEMENT
+  // ==========================================
+
   const [onboardingStep, setOnboardingStep] = useState<
     'password' | 'company' | 'complete'
   >('password')
   const [isCheckingStatus, setIsCheckingStatus] = useState(true)
 
+  // Password Change State
   const [passwordForm, setPasswordForm] = useState<ChangePasswordForm>({
     currentPassword: '',
     newPassword: '',
@@ -103,6 +113,7 @@ const Onboarding: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
+  // Company Setup State
   const [activeTab, setActiveTab] = useState<'info' | 'details' | 'managers' | 'review'>(
     'info'
   )
@@ -123,37 +134,45 @@ const Onboarding: React.FC = () => {
     personalleavedays: 2,
   })
 
+  // HR Form state
   const [hrForm, setHrForm] = useState<HRForm>({ name: '', email: '' })
+
+  // Manager Form state
   const [managerForm, setManagerForm] = useState<ManagerForm>({
     name: '',
     email: '',
   })
 
+  // Track added users
   const [addedHR, setAddedHR] = useState<HRForm | null>(null)
   const [addedManager, setAddedManager] = useState<ManagerForm | null>(null)
 
+  // Loading states
   const [addingHR, setAddingHR] = useState(false)
   const [addingManager, setAddingManager] = useState(false)
   const [completingSetup, setCompletingSetup] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
+  // ✅ SHIFT STATE VARIABLES
   const [shifts, setShifts] = useState<Shift[]>([
     { work_type: 'fixed_hours', name: '', startTime: '', endTime: '', description: '' },
   ])
   const [selectedShiftIndex, setSelectedShiftIndex] = useState(0)
 
-  // either "duration" or "shifts"
-  const [shiftConfigMode, setShiftConfigMode] = useState<'duration' | 'shifts'>('duration')
-
   // ==========================================
   // EFFECTS
   // ==========================================
 
+  // Check what onboarding is needed
   useEffect(() => {
     const storedUser = localStorage.getItem('user')
     if (storedUser) {
       try {
         const userData = JSON.parse(storedUser)
+        console.log('Onboarding Check:', userData)
+        console.log('- Temp password:', userData.temp_password)
+        console.log('- Setup completed:', userData.company_setup_completed)
+
         if (userData.temp_password === true) {
           setOnboardingStep('password')
         } else if (userData.company_setup_completed === false) {
@@ -168,8 +187,10 @@ const Onboarding: React.FC = () => {
     setIsCheckingStatus(false)
   }, [])
 
+  // Auto-redirect if complete
   useEffect(() => {
     if (!isCheckingStatus && onboardingStep === 'complete') {
+      console.log('All onboarding complete - redirecting to dashboard')
       setTimeout(() => {
         navigate('/admin/dashboard', { replace: true })
       }, 500)
@@ -177,11 +198,12 @@ const Onboarding: React.FC = () => {
   }, [onboardingStep, isCheckingStatus, navigate])
 
   // ==========================================
-  // HANDLERS
+  // PASSWORD CHANGE HANDLERS
   // ==========================================
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault()
+
     if (
       !passwordForm.currentPassword ||
       !passwordForm.newPassword ||
@@ -194,6 +216,7 @@ const Onboarding: React.FC = () => {
       })
       return
     }
+
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       toast({
         title: 'Error',
@@ -202,6 +225,7 @@ const Onboarding: React.FC = () => {
       })
       return
     }
+
     if (passwordForm.newPassword.length < 8) {
       toast({
         title: 'Error',
@@ -213,7 +237,7 @@ const Onboarding: React.FC = () => {
 
     setIsLoading(true)
     try {
-      await authRest.changePassword(
+      const response = await authRest.changePassword(
         passwordForm.currentPassword,
         passwordForm.newPassword
       )
@@ -223,12 +247,19 @@ const Onboarding: React.FC = () => {
         description: 'Your password has been changed successfully',
       })
 
+      // Update user data locally
       const storedUser = localStorage.getItem('user')
       if (storedUser) {
         const userData = JSON.parse(storedUser)
         userData.temp_password = false
         localStorage.setItem('user', JSON.stringify(userData))
         updateUserData({ temp_password: false })
+      }
+
+      console.log('Password changed - checking if setup needed')
+      const updatedUser = localStorage.getItem('user')
+      if (updatedUser) {
+        const userData = JSON.parse(updatedUser)
         if (userData.company_setup_completed === false) {
           setOnboardingStep('company')
         } else {
@@ -247,6 +278,10 @@ const Onboarding: React.FC = () => {
     }
   }
 
+  // ==========================================
+  // COMPANY SETUP HANDLERS
+  // ==========================================
+
   const handleSetupInputChange = (
     field: keyof CompanySetupData,
     value: any
@@ -257,15 +292,25 @@ const Onboarding: React.FC = () => {
     }))
   }
 
+  // ==========================================
+  // HR & MANAGER FORM HANDLERS
+  // ==========================================
+
   const handleHRInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
     setHrForm({ ...hrForm, [name]: value })
   }
 
-  const handleManagerInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleManagerInputChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const { name, value } = e.target
     setManagerForm({ ...managerForm, [name]: value })
   }
+
+  // ==========================================
+  // ✅ SHIFT HANDLER FUNCTIONS
+  // ==========================================
 
   const handleAddShift = () => {
     setShifts([
@@ -295,11 +340,7 @@ const Onboarding: React.FC = () => {
   }
 
   const handleCreateShifts = async (companyId: string) => {
-    if (setupForm.work_type === 'shift_based' && shiftConfigMode === 'duration') {
-      // overall duration only, no detailed shifts
-      return true
-    }
-
+    // Validate shifts
     for (let shift of shifts) {
       if (!shift.name) {
         toast({
@@ -309,10 +350,10 @@ const Onboarding: React.FC = () => {
         })
         return false
       }
-      if (!shift.startTime || !shift.endTime) {
+      if (shift.work_type === 'fixed_hours' && (!shift.startTime || !shift.endTime)) {
         toast({
           title: 'Error',
-          description: 'Please fill in start and end times for all shifts',
+          description: 'Please fill in start and end times',
           variant: 'destructive',
         })
         return false
@@ -325,11 +366,11 @@ const Onboarding: React.FC = () => {
         shifts.map((s) => ({
           work_type: s.work_type,
           name: s.name,
-          start_time: s.startTime || null,
-          end_time: s.endTime || null,
+          start_time: s.work_type === 'fixed_hours' ? s.startTime : null,
+          end_time: s.work_type === 'fixed_hours' ? s.endTime : null,
           required_hours_per_day:
             s.work_type === 'shift_based'
-              ? parseFloat((s.requiredHours || 0).toString()) || null
+              ? parseFloat((s.requiredHours || 0).toString())
               : null,
           description: s.description,
         }))
@@ -356,8 +397,13 @@ const Onboarding: React.FC = () => {
     }
   }
 
+  // ==========================================
+  // ADD HR HANDLER
+  // ==========================================
+
   const handleAddHR = async (e: React.FormEvent) => {
     e.preventDefault()
+
     if (!hrForm.name || !hrForm.email) {
       toast({
         title: 'Error',
@@ -366,13 +412,16 @@ const Onboarding: React.FC = () => {
       })
       return
     }
+
     setAddingHR(true)
     try {
-      await authRest.addHR(hrForm.name, hrForm.email)
+      const response = await authRest.addHR(hrForm.name, hrForm.email)
+
       toast({
         title: 'Success!',
         description: `${hrForm.name} has been added as HR Manager`,
       })
+
       setAddedHR({ ...hrForm })
       setHrForm({ name: '', email: '' })
     } catch (error) {
@@ -387,8 +436,13 @@ const Onboarding: React.FC = () => {
     }
   }
 
+  // ==========================================
+  // ADD MANAGER HANDLER
+  // ==========================================
+
   const handleAddManager = async (e: React.FormEvent) => {
     e.preventDefault()
+
     if (!managerForm.name || !managerForm.email) {
       toast({
         title: 'Error',
@@ -397,13 +451,20 @@ const Onboarding: React.FC = () => {
       })
       return
     }
+
     setAddingManager(true)
     try {
-      await authRest.addManager(managerForm.name, managerForm.email, 'manager')
+      const response = await authRest.addManager(
+        managerForm.name,
+        managerForm.email,
+        'manager'
+      )
+
       toast({
         title: 'Success!',
         description: `${managerForm.name} has been added as Manager`,
       })
+
       setAddedManager({ ...managerForm })
       setManagerForm({ name: '', email: '' })
     } catch (error) {
@@ -418,6 +479,10 @@ const Onboarding: React.FC = () => {
     }
   }
 
+  // ==========================================
+  // COMPANY SETUP HANDLER
+  // ==========================================
+
   const handleCompanySetup = async () => {
     if (!setupForm.companyname.trim()) {
       toast({
@@ -426,17 +491,6 @@ const Onboarding: React.FC = () => {
         variant: 'destructive',
       })
       return
-    }
-
-    if (setupForm.work_type === 'shift_based' && shiftConfigMode === 'duration') {
-      if (!setupForm.shift_duration_minutes || setupForm.shift_duration_minutes <= 0) {
-        toast({
-          title: 'Error',
-          description: 'Shift duration must be greater than 0 minutes',
-          variant: 'destructive',
-        })
-        return
-      }
     }
 
     setCompletingSetup(true)
@@ -460,16 +514,19 @@ const Onboarding: React.FC = () => {
         personalleavedays: setupForm.personalleavedays,
       }
 
+      // Add work-type-specific fields
       if (setupForm.work_type === 'fixed_hours') {
         payload.workinghoursstart = setupForm.workinghoursstart
         payload.workinghoursend = setupForm.workinghoursend
       } else {
         payload.shift_duration_minutes = setupForm.shift_duration_minutes
-        payload.shift_configuration_mode = shiftConfigMode
       }
+
+      console.log('Sending company setup:', payload)
 
       const response = await authRest.companySetup(payload)
 
+      // ✅ CREATE SHIFTS AFTER COMPANY SETUP
       const shiftsCreated = await handleCreateShifts(response.data.company_id)
       if (!shiftsCreated) {
         setCompletingSetup(false)
@@ -496,7 +553,7 @@ const Onboarding: React.FC = () => {
   }
 
   // ==========================================
-  // RENDER
+  // RENDER: LOADING STATE
   // ==========================================
 
   if (isCheckingStatus) {
@@ -505,14 +562,16 @@ const Onboarding: React.FC = () => {
         <Card className="w-full max-w-md bg-slate-800 border border-slate-700">
           <CardContent className="p-8 flex flex-col items-center gap-4">
             <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-            <p className="text-lg font-semibold text-slate-100">
-              Setting up your account...
-            </p>
+            <p className="text-lg font-semibold text-slate-100">Setting up your account...</p>
           </CardContent>
         </Card>
       </div>
     )
   }
+
+  // ==========================================
+  // RENDER: STEP 1 - PASSWORD CHANGE
+  // ==========================================
 
   if (onboardingStep === 'password') {
     return (
@@ -671,7 +730,7 @@ const Onboarding: React.FC = () => {
   }
 
   // ==========================================
-  // COMPANY SETUP UI
+  // RENDER: STEP 2 - COMPANY SETUP
   // ==========================================
 
   if (onboardingStep === 'company') {
@@ -703,6 +762,7 @@ const Onboarding: React.FC = () => {
                   <Building2 className="h-4 w-4" />
                   <span className="hidden sm:inline">Info</span>
                 </TabsTrigger>
+
                 <TabsTrigger
                   value="details"
                   className="flex items-center gap-2 data-[state=active]:bg-blue-600 text-slate-200 data-[state=active]:text-white"
@@ -710,6 +770,7 @@ const Onboarding: React.FC = () => {
                   <Clock className="h-4 w-4" />
                   <span className="hidden sm:inline">Details</span>
                 </TabsTrigger>
+
                 <TabsTrigger
                   value="managers"
                   className="flex items-center gap-2 data-[state=active]:bg-blue-600 text-slate-200 data-[state=active]:text-white"
@@ -717,6 +778,7 @@ const Onboarding: React.FC = () => {
                   <UserCheck className="h-4 w-4" />
                   <span className="hidden sm:inline">Managers</span>
                 </TabsTrigger>
+
                 <TabsTrigger
                   value="review"
                   className="flex items-center gap-2 data-[state=active]:bg-blue-600 text-slate-200 data-[state=active]:text-white"
@@ -726,7 +788,7 @@ const Onboarding: React.FC = () => {
                 </TabsTrigger>
               </TabsList>
 
-              {/* TAB 1: INFO */}
+              {/* TAB 1: Company Info */}
               <TabsContent value="info" className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="companyname" className="text-slate-200">
@@ -831,7 +893,7 @@ const Onboarding: React.FC = () => {
                 </Button>
               </TabsContent>
 
-              {/* TAB 2: DETAILS */}
+              {/* TAB 2: Company Details (Work Type, Break, Leave) */}
               <TabsContent value="details" className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="totalemployees" className="text-slate-200">
@@ -852,9 +914,9 @@ const Onboarding: React.FC = () => {
                   />
                 </div>
 
-                {/* Work pattern */}
+                {/* WORK TYPE SELECTION */}
                 <div className="space-y-2">
-                  <Label className="text-slate-200">Work Pattern</Label>
+                  <Label className="text-slate-200">Work Type</Label>
                   <div className="flex gap-3">
                     <button
                       type="button"
@@ -867,7 +929,7 @@ const Onboarding: React.FC = () => {
                           : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-slate-500'
                       }`}
                     >
-                      Standard Office Hours
+                      Fixed Working Hours
                     </button>
                     <button
                       type="button"
@@ -880,12 +942,12 @@ const Onboarding: React.FC = () => {
                           : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-slate-500'
                       }`}
                     >
-                      Shift‑Based Schedule
+                      Shift Based
                     </button>
                   </div>
                 </div>
 
-                {/* Fixed-hours company */}
+                {/* FIXED HOURS INPUT */}
                 {setupForm.work_type === 'fixed_hours' && (
                   <div className="grid grid-cols-2 gap-4 p-4 bg-slate-800 rounded-lg border border-slate-600">
                     <div className="space-y-2">
@@ -925,228 +987,35 @@ const Onboarding: React.FC = () => {
                   </div>
                 )}
 
-                {/* Shift-based company */}
+                {/* SHIFT BASED INPUT */}
                 {setupForm.work_type === 'shift_based' && (
-                  <div className="space-y-4">
-                    {/* Card 1: duration mode */}
-                    <div
-                      className={`p-4 rounded-lg border ${
-                        shiftConfigMode === 'duration'
-                          ? 'bg-purple-900/30 border-purple-500'
-                          : 'bg-slate-900/40 border-slate-600 opacity-70'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setShiftConfigMode('duration')}
-                        className="flex items-center gap-2 mb-3 text-xs font-medium text-slate-100"
-                      >
-                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-current">
-                          {shiftConfigMode === 'duration' && (
-                            <span className="w-2.5 h-2.5 rounded-full bg-purple-300" />
-                          )}
-                        </span>
-                        Overall Shift Duration
-                      </button>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="shiftduration" className="text-slate-200">
-                          Shift Duration (minutes)
-                        </Label>
-                        <Input
-                          id="shiftduration"
-                          type="number"
-                          min={1}
-                          value={setupForm.shift_duration_minutes ?? ''}
-                          onChange={(e) =>
-                            handleSetupInputChange(
-                              'shift_duration_minutes',
-                              e.target.value
-                                ? parseInt(e.target.value, 10)
-                                : null
-                            )
-                          }
-                          placeholder="e.g. 480 for 8 hours"
-                          className="bg-slate-800 border-slate-600 text-slate-100 placeholder-slate-400"
-                          disabled={shiftConfigMode !== 'duration'}
-                        />
-                        <p className="text-xs text-slate-400">
-                          Total expected time per day including paid breaks.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Card 2: detailed shifts */}
-                    <div
-                      className={`bg-slate-800 border rounded-lg p-5 space-y-4 ${
-                        shiftConfigMode === 'shifts'
-                          ? 'border-blue-500'
-                          : 'border-slate-600 opacity-70'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setShiftConfigMode('shifts')}
-                        className="flex items-center gap-2 mb-3 text-xs font-medium text-slate-100"
-                      >
-                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-current">
-                          {shiftConfigMode === 'shifts' && (
-                            <span className="w-2.5 h-2.5 rounded-full bg-blue-300" />
-                          )}
-                        </span>
-                        Detailed Work Schedule Shifts
-                      </button>
-
-                      <div className="space-y-3">
-                        {shifts.map((shift, index) => (
-                          <div
-                            key={index}
-                            className="p-4 bg-slate-900 rounded-lg border-2"
-                            style={{
-                              borderColor:
-                                selectedShiftIndex === index ? '#3b82f6' : '#475569',
-                            }}
-                          >
-                            <div className="flex items-center gap-2 mb-3">
-                              <input
-                                type="radio"
-                                name="defaultShift"
-                                checked={selectedShiftIndex === index}
-                                onChange={() => setSelectedShiftIndex(index)}
-                                className="w-4 h-4"
-                                disabled={shiftConfigMode !== 'shifts'}
-                              />
-                              <span className="text-sm font-medium text-slate-100">
-                                Default for new employees
-                              </span>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3 mb-3">
-                              <div>
-                                <Label className="text-xs text-slate-300">
-                                  Shift Name *
-                                </Label>
-                                <Input
-                                  placeholder="e.g., Morning"
-                                  value={shift.name}
-                                  onChange={(e) =>
-                                    handleShiftChange(
-                                      index,
-                                      'name',
-                                      e.target.value
-                                    )
-                                  }
-                                  className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500"
-                                  disabled={shiftConfigMode !== 'shifts'}
-                                />
-                              </div>
-                              {shifts.length > 1 && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => handleRemoveShift(index)}
-                                  className="self-end h-9 bg-red-700 hover:bg-red-800"
-                                  disabled={shiftConfigMode !== 'shifts'}
-                                >
-                                  Remove
-                                </Button>
-                              )}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3 mb-3">
-                              <div>
-                                <Label className="text-xs text-slate-300">
-                                  Start Time *
-                                </Label>
-                                <Input
-                                  type="time"
-                                  value={shift.startTime || ''}
-                                  onChange={(e) =>
-                                    handleShiftChange(
-                                      index,
-                                      'startTime',
-                                      e.target.value
-                                    )
-                                  }
-                                  className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100"
-                                  disabled={shiftConfigMode !== 'shifts'}
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-xs text-slate-300">
-                                  End Time *
-                                </Label>
-                                <Input
-                                  type="time"
-                                  value={shift.endTime || ''}
-                                  onChange={(e) =>
-                                    handleShiftChange(
-                                      index,
-                                      'endTime',
-                                      e.target.value
-                                    )
-                                  }
-                                  className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100"
-                                  disabled={shiftConfigMode !== 'shifts'}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="mt-2">
-                              <Label className="text-xs text-slate-300">
-                                Description
-                              </Label>
-                              <Input
-                                placeholder="Optional notes"
-                                value={shift.description || ''}
-                                onChange={(e) =>
-                                  handleShiftChange(
-                                    index,
-                                    'description',
-                                    e.target.value
-                                  )
-                                }
-                                className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500"
-                                disabled={shiftConfigMode !== 'shifts'}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {shifts.length < 3 && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={handleAddShift}
-                          className="w-full gap-2 border-slate-600 text-slate-100 hover:bg-slate-700 hover:text-slate-50"
-                          disabled={shiftConfigMode !== 'shifts'}
-                        >
-                          <Plus className="h-4 w-4" /> Add Another Shift
-                        </Button>
-                      )}
-
-                      <div className="p-3 bg-blue-900/40 rounded-lg border border-blue-700/70 mt-2">
-                        <p className="text-xs text-slate-300 mb-1">
-                          Active configuration:{' '}
-                          <span className="font-semibold text-blue-200">
-                            {shiftConfigMode === 'duration'
-                              ? 'Overall Shift Duration'
-                              : 'Detailed Work Schedule'}
-                          </span>
-                        </p>
-                        <p className="text-sm font-semibold text-blue-200">
-                          ✓ Default:{' '}
-                          {shifts[selectedShiftIndex]?.name || 'Select shift'}
-                        </p>
-                      </div>
-                    </div>
+                  <div className="space-y-2 p-4 bg-purple-900/20 rounded-lg border border-purple-700/60">
+                    <Label htmlFor="shiftduration" className="text-slate-200">
+                      Shift Duration (minutes)
+                    </Label>
+                    <Input
+                      id="shiftduration"
+                      type="number"
+                      min={1}
+                      value={setupForm.shift_duration_minutes ?? ''}
+                      onChange={(e) =>
+                        handleSetupInputChange(
+                          'shift_duration_minutes',
+                          e.target.value
+                            ? parseInt(e.target.value, 10)
+                            : null
+                        )
+                      }
+                      placeholder="e.g. 480 for 8 hours"
+                      className="bg-slate-800 border-slate-600 text-slate-100 placeholder-slate-400"
+                    />
+                    <p className="text-xs text-slate-400">
+                      Total shift time including break period.
+                    </p>
                   </div>
                 )}
 
-                {/* Break time */}
+                {/* BREAK TIME */}
                 <div className="space-y-2">
                   <Label htmlFor="breakminutes" className="text-slate-200">
                     Break Time (minutes)
@@ -1169,15 +1038,12 @@ const Onboarding: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Leaves */}
+                {/* LEAVE STRUCTURE */}
                 <div className="space-y-4">
-                  <h4 className="font-semibold text-slate-100">
-                    Leave Structure (Per Year)
-                  </h4>
+                  <h4 className="font-semibold text-slate-100">Leave Structure (Per Year)</h4>
+
                   <div className="flex items-center gap-3">
-                    <Label className="flex-1 text-slate-200">
-                      Casual Leave Days
-                    </Label>
+                    <Label className="flex-1 text-slate-200">Casual Leave Days</Label>
                     <Input
                       type="number"
                       min={0}
@@ -1192,10 +1058,9 @@ const Onboarding: React.FC = () => {
                       className="w-20 bg-slate-700 border-slate-600 text-slate-100"
                     />
                   </div>
+
                   <div className="flex items-center gap-3">
-                    <Label className="flex-1 text-slate-200">
-                      Sick Leave Days
-                    </Label>
+                    <Label className="flex-1 text-slate-200">Sick Leave Days</Label>
                     <Input
                       type="number"
                       min={0}
@@ -1210,10 +1075,9 @@ const Onboarding: React.FC = () => {
                       className="w-20 bg-slate-700 border-slate-600 text-slate-100"
                     />
                   </div>
+
                   <div className="flex items-center gap-3">
-                    <Label className="flex-1 text-slate-200">
-                      Personal Leave Days
-                    </Label>
+                    <Label className="flex-1 text-slate-200">Personal Leave Days</Label>
                     <Input
                       type="number"
                       min={0}
@@ -1227,6 +1091,155 @@ const Onboarding: React.FC = () => {
                       }
                       className="w-20 bg-slate-700 border-slate-600 text-slate-100"
                     />
+                  </div>
+                </div>
+
+                {/* ✅ SHIFTS MANAGEMENT SECTION */}
+                <div className="bg-slate-800 border border-slate-600 rounded-lg p-5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-blue-400" />
+                    <h4 className="font-semibold text-slate-100">Work Schedule Shifts</h4>
+                  </div>
+
+                  <div className="space-y-3">
+                    {shifts.map((shift, index) => (
+                      <div
+                        key={index}
+                        className="p-4 bg-slate-900 rounded-lg border-2"
+                        style={{
+                          borderColor: selectedShiftIndex === index ? '#3b82f6' : '#475569',
+                        }}
+                      >
+                        {/* RADIO - SELECT AS DEFAULT */}
+                        <div className="flex items-center gap-2 mb-3">
+                          <input
+                            type="radio"
+                            name="defaultShift"
+                            checked={selectedShiftIndex === index}
+                            onChange={() => setSelectedShiftIndex(index)}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm font-medium text-slate-100">
+                            Default for new employees
+                          </span>
+                        </div>
+
+                        {/* SHIFT NAME */}
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div>
+                            <Label className="text-xs text-slate-300">Shift Name *</Label>
+                            <Input
+                              placeholder="e.g., Morning"
+                              value={shift.name}
+                              onChange={(e) =>
+                                handleShiftChange(index, 'name', e.target.value)
+                              }
+                              className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500"
+                            />
+                          </div>
+                          {shifts.length > 1 && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleRemoveShift(index)}
+                              className="self-end h-9 bg-red-700 hover:bg-red-800"
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* FIXED HOURS */}
+                        {setupForm.work_type === 'fixed_hours' && (
+                          <div className="mt-2 space-y-2">
+                            <p className="text-xs font-semibold text-slate-400">
+                              Working Hours *
+                            </p>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label className="text-xs text-slate-300">Start</Label>
+                                <Input
+                                  type="time"
+                                  value={shift.startTime || ''}
+                                  onChange={(e) =>
+                                    handleShiftChange(index, 'startTime', e.target.value)
+                                  }
+                                  className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-300">End</Label>
+                                <Input
+                                  type="time"
+                                  value={shift.endTime || ''}
+                                  onChange={(e) =>
+                                    handleShiftChange(index, 'endTime', e.target.value)
+                                  }
+                                  className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* FLEXIBLE */}
+                        {setupForm.work_type === 'shift_based' && (
+                          <div className="mt-2">
+                            <Label className="text-xs text-slate-300">
+                              Required Hours/Day *
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.5"
+                              placeholder="8.5"
+                              value={shift.requiredHours || ''}
+                              onChange={(e) =>
+                                handleShiftChange(
+                                  index,
+                                  'requiredHours',
+                                  e.target.value
+                                )
+                              }
+                              className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100"
+                            />
+                          </div>
+                        )}
+
+                        {/* DESCRIPTION */}
+                        <div className="mt-3">
+                          <Label className="text-xs text-slate-300">Description</Label>
+                          <Input
+                            placeholder="Optional notes"
+                            value={shift.description || ''}
+                            onChange={(e) =>
+                              handleShiftChange(index, 'description', e.target.value)
+                            }
+                            className="mt-1 text-sm bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* ADD MORE SHIFTS */}
+                  {shifts.length < 3 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddShift}
+                      className="w-full gap-2 border-slate-600 text-slate-100 hover:bg-slate-700 hover:text-slate-50"
+                    >
+                      <Plus className="h-4 w-4" /> Add Another Shift
+                    </Button>
+                  )}
+
+                  {/* SUMMARY */}
+                  <div className="p-3 bg-blue-900/40 rounded-lg border border-blue-700/70">
+                    <p className="text-sm font-semibold text-blue-200">
+                      ✓ Default: {shifts[selectedShiftIndex]?.name || 'Select shift'}
+                    </p>
                   </div>
                 </div>
 
@@ -1247,12 +1260,13 @@ const Onboarding: React.FC = () => {
                 </div>
               </TabsContent>
 
-              {/* TAB 3: MANAGERS */}
+              {/* TAB 3: Add Managers */}
               <TabsContent value="managers" className="space-y-6">
                 <p className="text-sm text-slate-400">
                   Add HR and/or Manager (both are optional, you can add later)
                 </p>
 
+                {/* HR FORM */}
                 <div className="bg-slate-800 border border-slate-600 rounded-lg p-5 space-y-4">
                   <h4 className="font-semibold text-slate-100 flex items-center gap-2">
                     <Plus className="h-4 w-4" />
@@ -1261,21 +1275,14 @@ const Onboarding: React.FC = () => {
 
                   {addedHR ? (
                     <div className="p-3 bg-green-900/30 rounded border border-green-700/50">
-                      <p className="font-medium text-green-200">
-                        {addedHR.name}
-                      </p>
-                      <p className="text-sm text-green-300">
-                        {addedHR.email}
-                      </p>
+                      <p className="font-medium text-green-200">{addedHR.name}</p>
+                      <p className="text-sm text-green-300">{addedHR.email}</p>
                     </div>
                   ) : (
                     <form onSubmit={handleAddHR} className="space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-2">
-                          <Label
-                            htmlFor="hrname"
-                            className="text-sm text-slate-200"
-                          >
+                          <Label htmlFor="hrname" className="text-sm text-slate-200">
                             HR Name
                           </Label>
                           <Input
@@ -1290,10 +1297,7 @@ const Onboarding: React.FC = () => {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label
-                            htmlFor="hremail"
-                            className="text-sm text-slate-200"
-                          >
+                          <Label htmlFor="hremail" className="text-sm text-slate-200">
                             HR Email
                           </Label>
                           <Input
@@ -1331,6 +1335,7 @@ const Onboarding: React.FC = () => {
                   )}
                 </div>
 
+                {/* MANAGER FORM */}
                 <div className="bg-slate-800 border border-slate-600 rounded-lg p-5 space-y-4">
                   <h4 className="font-semibold text-slate-100 flex items-center gap-2">
                     <Plus className="h-4 w-4" />
@@ -1431,7 +1436,7 @@ const Onboarding: React.FC = () => {
                 </div>
               </TabsContent>
 
-              {/* TAB 4: REVIEW */}
+              {/* TAB 4: Review */}
               <TabsContent value="review" className="space-y-6">
                 <div className="bg-slate-800 p-4 rounded-lg space-y-4 border border-slate-600">
                   <div>
@@ -1472,7 +1477,7 @@ const Onboarding: React.FC = () => {
                     <p className="font-semibold text-slate-100">
                       {setupForm.work_type === 'fixed_hours'
                         ? `${setupForm.workinghoursstart} - ${setupForm.workinghoursend}`
-                        : `${setupForm.shift_duration_minutes} minutes (${shiftConfigMode})`}
+                        : `${setupForm.shift_duration_minutes} minutes`}
                     </p>
                   </div>
 
@@ -1555,6 +1560,7 @@ const Onboarding: React.FC = () => {
     )
   }
 
+  // Shouldn't reach here
   return null
 }
 
