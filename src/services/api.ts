@@ -108,20 +108,68 @@ export const authRest = {
 
   // Company setup (Admin only)
   async companySetup(payload: any) {
-    const res = await fetch(`${API}/api/auth/company_setup/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(),
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Company setup failed");
-    }
-    return res.json();
-  },
+  console.log('📤 Original payload:', payload);
+  
+  // Determine scenario based on payload
+  let backendPayload: any = {
+    companyname: payload.companyname,
+    companywebsite: payload.companywebsite,
+    companyindustry: payload.companyindustry,
+    timezone: payload.timezone,
+    currency: payload.currency,
+    totalemployees: payload.totalemployees,
+    work_type: payload.work_type,
+    breakminutes: payload.break_minutes,
+    casualleavedays: payload.casualleavedays,
+    sickleavedays: payload.sickleavedays,
+    personalleavedays: payload.personalleavedays,
+  };
+
+  // SCENARIO 1: Standard Office Hours
+  if (payload.work_type === 'fixed_hours') {
+  console.log('📋 Scenario 1: Standard Office Hours');
+  backendPayload.workinghoursstart = payload.workinghoursstart;
+  backendPayload.workinghoursend = payload.workinghoursend;
+  }
+  // SCENARIO 2 & 3: Shift-Based
+  else if (payload.work_type === 'shift_based') {
+  if (payload.shifts && payload.shifts.length > 0) {
+    console.log('📋 Scenario 3: Detailed Schedule Shifts');
+    backendPayload.shifts = payload.shifts.map((shift: any) => ({
+      name: shift.name,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      requiredHours: shift.requiredHours,
+      description: shift.description,
+      is_default: shift.is_default || false,
+    }));
+  } else {
+    console.log('📋 Scenario 2: Shift-Based Flexible Hours');
+    backendPayload.shiftdurationminutes = payload.shift_duration_minutes;
+  }
+  }
+
+  console.log('📤 Sending to backend:', backendPayload);
+
+  const res = await fetch(`${API}/api/auth/company_setup/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(backendPayload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('❌ Backend error:', err);
+    throw new Error(err.error || "Company setup failed");
+  }
+
+  const result = await res.json();
+  console.log('✅ Company setup successful:', result);
+  return result;
+},
 
   // ✅ ADD HR MANAGER
   async addHR(name: string, email: string) {

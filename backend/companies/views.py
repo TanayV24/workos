@@ -7,7 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from users.models import User as UsersAppUser
-from .models import Company, CompanyAdmin, CompanyRegistrationToken, CompanyDetails
+from .models import Company, CompanyAdmin, CompanyRegistrationToken, CompanyDetails, CompanyShift
 from .serializers import (
     CompanyRegisterSerializer,
     CompanyAdminCreateSerializer,
@@ -389,108 +389,202 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='company_setup')
     def company_setup(self, request):
         """
-        Company first-time setup endpoint (UPDATED)
-        Path: /api/auth/company_setup/
-        
-        Now creates/updates CompanyDetails table with:
-        - work_type: 'fixed_hours' or 'shift_based'
-        - start_time/end_time for fixed hours
-        - shift_duration_minutes for shift-based
-        - break_minutes configuration
-        - Leave days policy
+        ✅ CORRECTED: Proper storage based on work_type selection
+        Handles 3 scenarios:
+        1. Standard Office Hours → fixed_hours with start/end time
+        2. Shift-Based Flexible → shift_based with duration minutes
+        3. Detailed Schedule → shift_based with multiple shifts
         """
+        
         try:
             user = request.user
             company_admin = CompanyAdmin.objects.get(user=user)
-
+            
             print("\n" + "="*80)
-            print("🏢 COMPANY SETUP (WITH COMPANYDETAILS)")
+            print("🏢 COMPANY SETUP - SCENARIO DETECTION")
             print(f"Admin: {company_admin.full_name}")
             print(f"Company: {company_admin.company.name}")
             print("="*80)
-
+            
             # Check if already setup
             if company_admin.company_setup_completed:
                 return Response({
                     'success': False,
                     'error': 'Company setup already completed'
                 }, status=status.HTTP_400_BAD_REQUEST)
-
-            # Log received data
-            print(f"\n📦 Received data: {request.data}")
-
-            # Validate request data
-            serializer = CompanySetupSerializer(data=request.data)
-
-            if not serializer.is_valid():
-                print(f"❌ Validation errors: {serializer.errors}")
+            
+            # Get the incoming data
+            data = request.data
+            print(f"\n📦 Received data: {list(data.keys())}")
+            
+            # Validate company basic info
+            if not data.get('companyname'):
                 return Response({
                     'success': False,
-                    'errors': serializer.errors
+                    'error': 'Company name is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
-
-            validated_data = serializer.validated_data
-            print(f"✓ Validated data received")
-
+            
             # Get company
             company = company_admin.company
-
-            # Update company info
-            company.name = validated_data.get('companyname', company.name)
-            company.website = validated_data.get('companywebsite', company.website or '')
-            company.company_industry = validated_data.get('companyindustry')
-            company.timezone = validated_data.get('timezone', 'Asia/Kolkata')
-            company.currency = validated_data.get('currency', 'INR')
+            
+            # ========== UPDATE COMPANY ==========
+            company.name = data.get('companyname', company.name)
+            company.website = data.get('companywebsite', company.website or '')
+            company.company_industry = data.get('companyindustry')
+            company.timezone = data.get('timezone', 'Asia/Kolkata')
+            company.currency = data.get('currency', 'INR')
             company.save()
-            print(f"✓ Company updated: {company.name}")
-
-            # ============================================
-            # CREATE/UPDATE COMPANYDETAILS TABLE
-            # ============================================
+            print(f"\n✓ Company basic info saved: {company.name}")
             
-            print(f"\n✨ Creating/Updating CompanyDetails...")
-            
+            # ========== CREATE/UPDATE COMPANY_DETAILS ==========
+            print(f"\n✨ Processing Company Details...")
             details, created = CompanyDetails.objects.get_or_create(company=company)
             
-            # Set basic info
-            details.total_employees = validated_data.get('totalemployees', 1)
-            details.break_minutes = validated_data.get('break_minutes', 60)
+            details.total_employees = data.get('totalemployees', 1)
+            details.break_minutes = data.get('break_minutes', 60)
+            details.casual_leave_days = data.get('casualleavedays', 0)
+            details.sick_leave_days = data.get('sickleavedays', 0)
+            details.personal_leave_days = data.get('personalleavedays', 0)
             
-            # Set work type and related fields
-            details.work_type = validated_data['work_type']
+            work_type = data.get('work_type')  # 'fixedhours' or 'shiftbased'
+            print(f"\n🔍 Work Type: {work_type}")
             
-            if details.work_type == 'fixed_hours':
-                details.start_time = validated_data.get('workinghoursstart')
-                details.end_time = validated_data.get('workinghoursend')
+            # ========== SCENARIO 1: STANDARD OFFICE HOURS ==========
+            if work_type == 'fixed_hours':
+                print("📋 SCENARIO 1: Standard Office Hours")
+                
+                details.work_type = 'fixed_hours'
+                details.start_time = data.get('workinghoursstart')  # "09:00"
+                details.end_time = data.get('workinghoursend')      # "18:00"
                 details.shift_duration_minutes = None
-                print(f"✓ Fixed hours: {details.start_time} - {details.end_time}")
+                details.save()
+                
+                print(f"   ✓ Start Time: {details.start_time}")
+                print(f"   ✓ End Time: {details.end_time}")
+                
+                # Create single shift for standard hours
+                shift_name = "Standard Hours"
+                company_shift, _ = CompanyShift.objects.update_or_create(
+                    company=company,
+                    name=shift_name,
+                    defaults={
+                        'work_type': 'fixed_hours',
+                        'start_time': details.start_time,
+                        'end_time': details.end_time,
+                        'required_hours_per_day': None,
+                        'description': 'Standard working hours for all employees',
+                        'is_active': True,
+                    }
+                )
+                print(f"   ✓ Created shift: {shift_name}")
+                shift_id = str(company_shift.id)
             
-            else:  # shift_based
-                details.shift_duration_minutes = validated_data.get('shift_duration_minutes')
+            # ========== SCENARIO 2 & 3: SHIFT-BASED ==========
+            elif work_type == 'shift_based':
+                details.work_type = 'shift_based'
                 details.start_time = None
                 details.end_time = None
-                print(f"✓ Shift duration: {details.shift_duration_minutes} minutes")
+                
+                # Check if it's flexible hours OR detailed schedule
+                shift_duration = data.get('shiftdurationminutes')  # For Scenario 2
+                shifts_data = data.get('shifts', [])  # For Scenario 3
+                
+                # SCENARIO 2: Flexible Hours (just overall duration)
+                if shift_duration and not shifts_data:
+                    print("📋 SCENARIO 2: Shift-Based Flexible Hours")
+                    
+                    details.shift_duration_minutes = shift_duration
+                    details.save()
+                    print(f"   ✓ Shift Duration: {shift_duration} minutes")
+                    
+                    # Create single flexible shift
+                    shift_name = "Flexible Shift"
+                    company_shift, _ = CompanyShift.objects.update_or_create(
+                        company=company,
+                        name=shift_name,
+                        defaults={
+                            'work_type': 'shift_based',
+                            'start_time': None,
+                            'end_time': None,
+                            'required_hours_per_day': float(shift_duration) / 60,  # Convert to hours
+                            'description': f'Employees need to complete {shift_duration} minutes per day',
+                            'is_active': True,
+                        }
+                    )
+                    print(f"   ✓ Created shift: {shift_name} ({shift_duration} min/day)")
+                    shift_id = str(company_shift.id)
+                
+                # SCENARIO 3: Detailed Schedule (multiple shifts)
+                elif shifts_data:
+                    print(f"📋 SCENARIO 3: Detailed Work Schedule ({len(shifts_data)} shifts)")
+                    
+                    details.shift_duration_minutes = None
+                    details.save()
+                    
+                    shift_id = None
+                    created_shifts = []
+                    
+                    # Delete old shifts for this company (fresh start)
+                    CompanyShift.objects.filter(company=company).delete()
+                    print(f"   ✓ Cleared old shifts")
+                    
+                    # Create each shift from UI
+                    for idx, shift_data in enumerate(shifts_data):
+                        shift_name = shift_data.get('name', '').strip()
+                        start_time = shift_data.get('startTime')
+                        end_time = shift_data.get('endTime')
+                        required_hours = shift_data.get('requiredHours')
+                        description = shift_data.get('description', '')
+                        is_default = shift_data.get('is_default', False)  # Check if marked as default
+                        
+                        if not shift_name:
+                            print(f"   ⚠️ Shift {idx + 1}: Name missing, skipping")
+                            continue
+                        
+                        company_shift = CompanyShift.objects.create(
+                            company=company,
+                            work_type='shift_based',
+                            name=shift_name,
+                            start_time=start_time,  # "09:00" for morning shift
+                            end_time=end_time,      # "15:00" for morning shift
+                            required_hours_per_day=float(required_hours) if required_hours else None,
+                            description=description,
+                            is_active=True,
+                        )
+                        
+                        created_shifts.append({
+                            'id': str(company_shift.id),
+                            'name': shift_name,
+                            'start_time': str(start_time) if start_time else None,
+                            'end_time': str(end_time) if end_time else None,
+                        })
+                        
+                        # Set first shift as default if not specified
+                        if idx == 0 or is_default:
+                            shift_id = str(company_shift.id)
+                        
+                        print(f"   ✓ Shift {idx + 1}: {shift_name} ({start_time}-{end_time})")
+                
+                else:
+                    return Response({
+                        'success': False,
+                        'error': 'Shift-based setup requires either duration or shifts data'
+                    }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Set leave days
-            details.casual_leave_days = validated_data.get('casualleavedays', 0)
-            details.sick_leave_days = validated_data.get('sickleavedays', 0)
-            details.personal_leave_days = validated_data.get('personalleavedays', 0)
+            else:
+                return Response({
+                    'success': False,
+                    'error': f'Invalid work type: {work_type}'
+                }, status=status.HTTP_400_BAD_REQUEST)
             
-            details.save()
-            print(f"✓ CompanyDetails {'created' if created else 'updated'}")
-
-            # ============================================
-            # UPDATE COMPANYADMIN (ONLY ADMIN INFO)
-            # ============================================
-            
-            # Mark setup as completed
+            # ========== FINALIZE SETUP ==========
             company_admin.company_setup_completed = True
             company_admin.setup_completed_at = timezone.now()
             company_admin.save()
-            print(f"✓ CompanyAdmin updated")
-            print(f"✓ Setup completed at: {company_admin.setup_completed_at}")
+            
+            print(f"\n✅ Setup completed successfully!")
             print("="*80 + "\n")
-
+            
             return Response({
                 'success': True,
                 'message': 'Company setup completed successfully',
@@ -498,17 +592,16 @@ class AuthViewSet(viewsets.ViewSet):
                     'company_id': str(company.id),
                     'company_name': company.name,
                     'work_type': details.work_type,
-                    'total_employees': details.total_employees,
-                    'break_minutes': details.break_minutes
+                    'default_shift_id': shift_id,
                 }
             }, status=status.HTTP_200_OK)
-
+            
         except CompanyAdmin.DoesNotExist:
             return Response({
                 'success': False,
                 'error': 'Company admin not found'
             }, status=status.HTTP_404_NOT_FOUND)
-
+        
         except Exception as e:
             print(f"❌ Setup error: {str(e)}")
             logger.exception("Company setup error: %s", e)

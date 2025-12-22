@@ -36,7 +36,7 @@ interface CompanySetupData {
 
   totalemployees: number
 
-  work_type: 'fixed_hours' | 'shift_based'
+  work_type: 'fixed_hours' | 'shift_based';  // Change from worktype'
 
   workinghoursstart: string
   workinghoursend: string
@@ -418,17 +418,19 @@ const Onboarding: React.FC = () => {
     }
   }
 
-  const handleCompanySetup = async () => {
-    if (!setupForm.companyname.trim()) {
-      toast({
-        title: 'Error',
-        description: 'Company name is required',
-        variant: 'destructive',
-      })
-      return
-    }
+ const handleCompanySetup = async () => {
+  if (!setupForm.companyname.trim()) {
+    toast({
+      title: 'Error',
+      description: 'Company name is required',
+      variant: 'destructive',
+    })
+    return
+  }
 
-    if (setupForm.work_type === 'shift_based' && shiftConfigMode === 'duration') {
+  // Validate shift configuration
+  if (setupForm.work_type === 'shift_based') {
+    if (shiftConfigMode === 'duration') {
       if (!setupForm.shift_duration_minutes || setupForm.shift_duration_minutes <= 0) {
         toast({
           title: 'Error',
@@ -437,63 +439,110 @@ const Onboarding: React.FC = () => {
         })
         return
       }
-    }
-
-    setCompletingSetup(true)
-    try {
-      let websiteUrl = setupForm.companywebsite.trim()
-      if (websiteUrl && !websiteUrl.startsWith('http://') && !websiteUrl.startsWith('https://')) {
-        websiteUrl = `https://${websiteUrl}`
-      }
-
-      const payload: any = {
-        companyname: setupForm.companyname,
-        companywebsite: websiteUrl,
-        companyindustry: setupForm.companyindustry,
-        timezone: setupForm.timezone,
-        currency: setupForm.currency,
-        totalemployees: setupForm.totalemployees,
-        work_type: setupForm.work_type,
-        break_minutes: setupForm.break_minutes,
-        casualleavedays: setupForm.casualleavedays,
-        sickleavedays: setupForm.sickleavedays,
-        personalleavedays: setupForm.personalleavedays,
-      }
-
-      if (setupForm.work_type === 'fixed_hours') {
-        payload.workinghoursstart = setupForm.workinghoursstart
-        payload.workinghoursend = setupForm.workinghoursend
-      } else {
-        payload.shift_duration_minutes = setupForm.shift_duration_minutes
-        payload.shift_configuration_mode = shiftConfigMode
-      }
-
-      const response = await authRest.companySetup(payload)
-
-      const shiftsCreated = await handleCreateShifts(response.data.company_id)
-      if (!shiftsCreated) {
-        setCompletingSetup(false)
+    } else if (shiftConfigMode === 'shifts') {
+      if (shifts.length === 0) {
+        toast({
+          title: 'Error',
+          description: 'Please add at least one shift',
+          variant: 'destructive',
+        })
         return
       }
-
-      toast({
-        title: 'Success!',
-        description: 'Company setup completed! Redirecting to dashboard...',
-      })
-
-      updateUserData({ company_setup_completed: true })
-      setOnboardingStep('complete')
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description:
-          error instanceof Error ? error.message : 'Failed to save setup',
-        variant: 'destructive',
-      })
-    } finally {
-      setCompletingSetup(false)
+      
+      for (let shift of shifts) {
+        if (!shift.name) {
+          toast({
+            title: 'Error',
+            description: 'Please fill in all shift names',
+            variant: 'destructive',
+          })
+          return
+        }
+        if (!shift.startTime || !shift.endTime) {
+          toast({
+            title: 'Error',
+            description: 'Please fill in start and end times for all shifts',
+            variant: 'destructive',
+          })
+          return
+        }
+      }
     }
   }
+
+  setCompletingSetup(true)
+  try {
+    let websiteUrl = setupForm.companywebsite.trim()
+    if (websiteUrl && !websiteUrl.startsWith('http://') && !websiteUrl.startsWith('https://')) {
+      websiteUrl = `https://${websiteUrl}`
+    }
+
+    const payload: any = {
+      companyname: setupForm.companyname,
+      companywebsite: websiteUrl,
+      companyindustry: setupForm.companyindustry,
+      timezone: setupForm.timezone,
+      currency: setupForm.currency,
+      totalemployees: setupForm.totalemployees,
+      work_type: setupForm.work_type,
+      break_minutes: setupForm.break_minutes,
+      casualleavedays: setupForm.casualleavedays,
+      sickleavedays: setupForm.sickleavedays,
+      personalleavedays: setupForm.personalleavedays,
+      shift_duration_minutes: setupForm.shift_duration_minutes, // for scenario 2
+      shifts,                                                   // for scenario 3
+      workinghoursstart: setupForm.workinghoursstart,           // for scenario 1
+      workinghoursend: setupForm.workinghoursend
+    }
+
+    // Add data based on work type AND shift config mode
+    if (setupForm.work_type === 'fixed_hours') {
+      payload.workinghoursstart = setupForm.workinghoursstart
+      payload.workinghoursend = setupForm.workinghoursend
+    } else if (setupForm.work_type === 'shift_based') {
+      if (shiftConfigMode === 'duration') {
+        // Scenario 2: Only shift duration
+        payload.shift_duration_minutes = setupForm.shift_duration_minutes
+      } else if (shiftConfigMode === 'shifts') {
+        // Scenario 3: Detailed shifts array
+        payload.shifts = shifts.map((s) => ({
+          work_type: s.work_type,
+          name: s.name,
+          starttime: s.startTime || null,
+          endtime: s.endTime || null,
+          requiredhoursperday: s.requiredHours ? Number(s.requiredHours) : null,
+          description: s.description || null,
+        }))
+      }
+    }
+
+    console.log('📤 Sending payload:', JSON.stringify(payload, null, 2))
+
+    const response = await authRest.companySetup(payload)
+
+    console.log('✅ Setup response:', response)
+
+    toast({
+      title: 'Success!',
+      description: 'Company setup completed! Redirecting to dashboard...',
+    })
+
+    updateUserData({ company_setup_completed: true })
+    setOnboardingStep('complete')
+  } catch (error) {
+    console.error('❌ Setup error:', error)
+    toast({
+      title: 'Error',
+      description:
+        error instanceof Error ? error.message : 'Failed to save setup',
+      variant: 'destructive',
+    })
+  } finally {
+    setCompletingSetup(false)
+  }
+}
+
+
 
   // ==========================================
   // RENDER
@@ -1431,9 +1480,11 @@ const Onboarding: React.FC = () => {
                 </div>
               </TabsContent>
 
-              {/* TAB 4: REVIEW */}
+              {/* TAB 4: Review */}
               <TabsContent value="review" className="space-y-6">
-                <div className="bg-slate-800 p-4 rounded-lg space-y-4 border border-slate-600">
+                <div className="bg-slate-700 dark:bg-slate-700 p-4 rounded-lg space-y-4 border border-slate-600">
+                  
+                  {/* Company Info */}
                   <div>
                     <p className="text-sm text-slate-400">Company Name</p>
                     <p className="font-semibold text-slate-100">
@@ -1444,74 +1495,90 @@ const Onboarding: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-slate-400">Industry</p>
-                      <p className="font-semibold text-slate-100">
-                        {setupForm.companyindustry}
-                      </p>
+                      <p className="font-semibold text-slate-100">{setupForm.companyindustry}</p>
                     </div>
                     <div>
                       <p className="text-sm text-slate-400">Currency</p>
+                      <p className="font-semibold text-slate-100">{setupForm.currency}</p>
+                    </div>
+                  </div>
+
+                  {/* SCENARIO 1: Standard Office Hours */}
+                  {setupForm.work_type === 'fixed_hours' && (
+                    <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-3 space-y-2">
+                      <p className="text-sm font-semibold text-blue-200">📋 Work Pattern: Standard Office Hours</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-slate-400">Start Time</p>
+                          <p className="font-semibold text-slate-100">{setupForm.workinghoursstart}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-400">End Time</p>
+                          <p className="font-semibold text-slate-100">{setupForm.workinghoursend}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SCENARIO 2: Flexible Shift Hours */}
+                  {setupForm.work_type === 'shift_based' && !shifts.some(s => s.name) && (
+                    <div className="bg-purple-900/20 border border-purple-700/50 rounded-lg p-3 space-y-2">
+                      <p className="text-sm font-semibold text-purple-200">📋 Work Pattern: Shift-Based Flexible</p>
+                      <div>
+                        <p className="text-xs text-slate-400">Required Hours Per Day</p>
+                        <p className="font-semibold text-slate-100">{setupForm.shift_duration_minutes} minutes</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SCENARIO 3: Detailed Schedule Shifts */}
+                  {setupForm.work_type === 'shift_based' && shifts.some(s => s.name) && (
+                    <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3 space-y-3">
+                      <p className="text-sm font-semibold text-green-200">📋 Work Pattern: Detailed Schedule</p>
+                      <div className="space-y-2">
+                        {shifts.map((shift, idx) => (
+                          shift.name && (
+                            <div key={idx} className="bg-slate-600 p-2 rounded text-xs">
+                              <p className="font-semibold text-slate-100">
+                                {shift.name}
+                                {selectedShiftIndex === idx && ' (Default)'}
+                              </p>
+                              {shift.startTime && shift.endTime && (
+                                <p className="text-slate-300">
+                                  {shift.startTime} - {shift.endTime}
+                                </p>
+                              )}
+                            </div>
+                          )
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Break & Leave Info */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-slate-400">Break Time</p>
+                      <p className="font-semibold text-slate-100">{setupForm.break_minutes} min</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-400">Leave Days/Year</p>
                       <p className="font-semibold text-slate-100">
-                        {setupForm.currency}
+                        Casual: {setupForm.casualleavedays}, Sick: {setupForm.sickleavedays}, Personal: {setupForm.personalleavedays}
                       </p>
                     </div>
                   </div>
 
-                  <div>
-                    <p className="text-sm text-slate-400">Work Type</p>
-                    <p className="font-semibold capitalize text-slate-100">
-                      {setupForm.work_type.replace('_', ' ')}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-sm text-slate-400">
-                      {setupForm.work_type === 'fixed_hours'
-                        ? 'Working Hours'
-                        : 'Shift Duration'}
-                    </p>
-                    <p className="font-semibold text-slate-100">
-                      {setupForm.work_type === 'fixed_hours'
-                        ? `${setupForm.workinghoursstart} - ${setupForm.workinghoursend}`
-                        : `${setupForm.shift_duration_minutes} minutes (${shiftConfigMode})`}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-sm text-slate-400">Break Time</p>
-                    <p className="font-semibold text-slate-100">
-                      {setupForm.break_minutes} minutes
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-sm text-slate-400">Leave Days/Year</p>
-                    <p className="font-semibold text-slate-100">
-                      Casual: {setupForm.casualleavedays}, Sick:{' '}
-                      {setupForm.sickleavedays}, Personal:{' '}
-                      {setupForm.personalleavedays}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-sm text-slate-400">Default Shift</p>
-                    <p className="font-semibold text-slate-100">
-                      {shifts[selectedShiftIndex]?.name || 'No shift selected'}
-                    </p>
-                  </div>
-
+                  {/* Team Members */}
                   {(addedHR || addedManager) && (
                     <div>
-                      <p className="text-sm text-slate-400">Team</p>
+                      <p className="text-sm text-slate-400">Team Members</p>
                       <ul className="font-semibold space-y-1">
                         {addedHR && (
-                          <li className="text-blue-300">
-                            {addedHR.name} - HR Manager
-                          </li>
+                          <li className="text-blue-300">✓ {addedHR.name} - HR Manager</li>
                         )}
                         {addedManager && (
-                          <li className="text-purple-300">
-                            {addedManager.name} - Manager
-                          </li>
+                          <li className="text-purple-300">✓ {addedManager.name} - Manager</li>
                         )}
                       </ul>
                     </div>
@@ -1520,7 +1587,7 @@ const Onboarding: React.FC = () => {
 
                 <div className="bg-green-900/30 border border-green-700/50 rounded-lg p-4">
                   <p className="text-green-200 text-sm">
-                    After completing setup, you'll be redirected to your admin dashboard
+                    ✅ All information looks good. Click "Complete Setup" to finalize and proceed to admin dashboard.
                   </p>
                 </div>
 
@@ -1528,14 +1595,14 @@ const Onboarding: React.FC = () => {
                   <Button
                     variant="outline"
                     onClick={() => setActiveTab('managers')}
-                    className="flex-1 border-slate-600 text-slate-200 hover:bg-slate-700"
+                    className="flex-1 border-slate-500 text-slate-200 hover:bg-slate-700"
                   >
                     Back
                   </Button>
                   <Button
                     onClick={handleCompanySetup}
                     disabled={completingSetup}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    className="flex-1 bg-green-600 hover:bg-green-700"
                   >
                     {completingSetup ? (
                       <>
