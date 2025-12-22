@@ -98,6 +98,7 @@ interface Employee {
   avatar?: string;
   location?: string;
   employee_id?: string;
+  role?: string;
 }
 
 const statusColors: Record<string, 'success' | 'destructive' | 'warning'> = {
@@ -135,7 +136,7 @@ const Employees: React.FC = () => {
   const canSeeBasicDetails =
     userRole === ROLES.TEAM_LEAD || userRole === ROLES.EMPLOYEE;
 
-  const userDepartmentId = user?.department_id;
+  const userDepartmentId = user?.department;
 
   // ✅ CHECK IF USER CAN ACCESS EMPLOYEES PAGE
   const canAccessEmployeesPage =
@@ -161,6 +162,9 @@ const Employees: React.FC = () => {
 
   // LOAD DATA ON MOUNT
   useEffect(() => {
+    console.log('👤 Current user:', user);
+    console.log('🔍 User role:', user?.role);
+    console.log('📊 Role type:', typeof user?.role);
     loadDepartments();
     loadEmployees();
   }, []);
@@ -667,11 +671,12 @@ const Employees: React.FC = () => {
                                         : 'Active'}
                                     </Badge>
                                   )}
-                                  {employee.department && (
-                                    <Badge variant="ghost">
-                                      {employee.department}
-                                    </Badge>
-                                  )}
+
+                                  <Badge variant="ghost">
+                                    {['company_admin', 'hr', 'manager'].includes(user?.role)
+                                      ? employee.role || 'N/A'
+                                      : employee.department || 'N/A'}
+                                  </Badge>
                                 </div>
                               </CardContent>
                             </Card>
@@ -773,7 +778,12 @@ const Employees: React.FC = () => {
                                   <td className="p-4">
                                     <div>
                                       <p className="font-medium">
-                                        {employee.department || 'N/A'}
+                                        {(() => {
+                                        const showRole = ['company_admin', 'hr', 'manager'].includes(user?.role);
+                                        const displayValue = showRole ? (employee.role || 'N/A') : (employee.department || 'N/A');
+                                        console.log(`${employee.name}: role="${employee.role}", showRole=${showRole}, display="${displayValue}"`);
+                                        return displayValue;
+                                      })()}
                                       </p>
                                       {canSeeFullDetails && (
                                         <p className="text-sm text-muted-foreground">

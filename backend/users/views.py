@@ -347,25 +347,62 @@ class UserViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, 
                           status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    @action(detail=False, methods=['get'], url_path='list_departments')
+    @action(detail=False, methods=['get'], url_path='list_departments', permission_classes=[IsAuthenticated])
     def list_departments(self, request):
-        """List all departments for company"""
+        """List all departments for company - Works for all roles"""
         try:
+            # Try to get current user from custom users table first
             try:
-                company_admin = CompanyAdmin.objects.get(user=request.user)
-                company = company_admin.company
-            except CompanyAdmin.DoesNotExist:
-                return Response({'success': False, 'error': 'Company admin not found'},
-                              status=status.HTTP_404_NOT_FOUND)
+                current_user = User.objects.get(email=request.user.email)
+                company_id = current_user.company_id
+                current_user_role = current_user.role
+                
+            except User.DoesNotExist:
+                # Fallback: Check if they're a company admin
+                try:
+                    company_admin = CompanyAdmin.objects.get(user=request.user)
+                    company_id = company_admin.company.id
+                    current_user_role = 'company_admin'
+                except CompanyAdmin.DoesNotExist:
+                    return Response(
+                        {'success': False, 'error': 'User not found in system'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
             
-            departments = Department.objects.filter(company_id=company.id).order_by('name')
+            # Permission check
+            if current_user_role not in ['company_admin', 'hr', 'manager', 'team_lead']:
+                return Response(
+                    {'success': False, 'error': 'No permission to view departments'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Validate company_id
+            if not company_id:
+                return Response(
+                    {'success': False, 'error': 'User not associated with company'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get departments
+            departments = Department.objects.filter(company_id=company_id).order_by('name')
             serializer = DepartmentSerializer(departments, many=True)
             
-            return Response({'success': True, 'data': serializer.data, 'count': departments.count()},
-                          status=status.HTTP_200_OK)
+            return Response(
+                {
+                    'success': True,
+                    'data': serializer.data,
+                    'count': departments.count()
+                },
+                status=status.HTTP_200_OK
+            )
+            
         except Exception as e:
-            return Response({'success': False, 'error': str(e)},
-                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {'success': False, 'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
     
     @action(detail=False, methods=['post'], url_path='add_employee')
     def add_employee(self, request):
@@ -465,27 +502,58 @@ class UserViewSet(viewsets.ViewSet):
         
     @action(detail=False, methods=['get'], url_path='list_employees', permission_classes=[IsAuthenticated])
     def list_employees(self, request):
-        """List all employees for the current company"""
+        """List employees based on user role"""
         try:
-            # Get company from logged-in admin
+            # Try to get current user from custom users table
             try:
-                company_admin = CompanyAdmin.objects.get(user=request.user)
-                company = company_admin.company
-            except CompanyAdmin.DoesNotExist:
+                current_user = User.objects.get(email=request.user.email)
+            except User.DoesNotExist:
+                # If user not found, check if they're a company admin
+                try:
+                    company_admin = CompanyAdmin.objects.get(user=request.user)
+                    company_id = company_admin.company.id
+                    # Create a temporary admin context
+                    current_user_role = 'company_admin'
+                except CompanyAdmin.DoesNotExist:
+                    return Response(
+                        {'success': False, 'error': 'User not found in system'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            else:
+                company_id = current_user.company_id
+                current_user_role = current_user.role
+            
+            # Get company
+            if not company_id:
                 return Response(
-                    {'success': False, 'error': 'Company admin not found'},
-                    status=status.HTTP_404_NOT_FOUND
+                    {'success': False, 'error': 'User not associated with company'},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-
-            # Get all users (employees) for this company - NO select_related needed
-            employees = User.objects.filter(
-                company_id=company.id
-            ).order_by('-created_at')
-
-            # Build response data MANUALLY
+            
+            # Filter employees based on role
+            if current_user_role in ['company_admin', 'hr', 'manager']:
+                employees = User.objects.filter(
+                    company_id=company_id
+                ).order_by('-created_at')
+            elif current_user_role == 'team_lead':
+                if not hasattr(current_user, 'department_id'):
+                    return Response(
+                        {'success': False, 'error': 'Team lead not assigned to department'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                employees = User.objects.filter(
+                    company_id=company_id,
+                    department_id=current_user.department_id
+                ).order_by('-created_at')
+            else:
+                return Response(
+                    {'success': False, 'error': 'No permission to view employees'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Build response
             employee_list = []
             for emp in employees:
-                # Get department name from department_id
                 dept_name = 'N/A'
                 if emp.department_id:
                     try:
@@ -508,17 +576,18 @@ class UserViewSet(viewsets.ViewSet):
                     'join_date': emp.created_at.strftime('%Y-%m-%d') if emp.created_at else None,
                 }
                 employee_list.append(employee_data)
-
+            
             return Response(
                 {
                     'success': True,
                     'data': employee_list,
+                    'count': len(employee_list)
                 },
                 status=status.HTTP_200_OK
             )
-
+            
         except Exception as e:
             return Response(
                 {'success': False, 'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        )
