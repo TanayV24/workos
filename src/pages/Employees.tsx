@@ -192,25 +192,30 @@ const Employees: React.FC = () => {
     }
   };
 
-  // ✅ LOAD EMPLOYEES FROM API (NEW FUNCTION)
   const loadEmployees = async () => {
-    try {
-      setLoading(true);
-      const response = await userRest.listEmployees();
-      if (response.success) {
-        console.log('✅ Employees loaded:', response.data);
-        setEmployees(response.data || []);
-      } else {
-        console.error('Failed to load employees:', response.error);
-        setEmployees([]);
-      }
-    } catch (err) {
-      console.error('Error loading employees:', err);
+  try {
+    console.log("📥 Loading employees...");
+    const result = await userRest.listEmployees();
+    console.log("📨 API Response:", result);
+    
+    if (result.success && result.data) {
+      console.log("✅ Setting employees:", result.data.length);
+      
+      // ✅ THIS IS THE KEY FIX!
+      setEmployees(result.data);
+      
+      console.log("✅ Employees loaded successfully");
+    } else {
+      console.error("❌ API Error:", result.error);
       setEmployees([]);
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error) {
+    console.error("❌ Exception:", error);
+    setEmployees([]);
+  }
+};
+
+
 
   // ✅ APPLY ROLE‑BASED DATA VISIBILITY FIRST
   const employeesForRole = useMemo(
@@ -761,9 +766,10 @@ const Employees: React.FC = () => {
                                   )}
 
                                   <Badge variant="ghost">
-                                    {['company_admin', 'hr', 'manager'].includes(user?.role)
-                                      ? employee.role || 'N/A'
-                                      : employee.department || 'N/A'}
+                                    {['employee', 'team_lead'].includes(employee.role)
+                                      ? employee.department || 'Unassigned'
+                                      : employee.role || 'N/A'}
+
                                   </Badge>
                                 </div>
                               </CardContent>
