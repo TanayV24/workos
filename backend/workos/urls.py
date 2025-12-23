@@ -1,11 +1,13 @@
 # workos/backend/workos/urls.py
+
 """
 Project URL configuration for WorkOS.
 
 This file:
- - registers DRF router for the main app viewsets
- - keeps existing app includes (chat, users)
- - adds an explicit guaranteed endpoint for POST /api/auth/add_hr/
+- registers DRF router for the main app viewsets
+- keeps existing app includes (chat, users)
+- adds an explicit guaranteed endpoint for POST /api/auth/add_hr/
+- now also includes tasks and notifications routes
 """
 
 from django.contrib import admin
@@ -46,6 +48,7 @@ if HAS_COMPANIES and AdminDashboardViewSet is not None:
 
 # If for any reason the router did not register add_hr, create an explicit mapping below.
 add_hr_view = None
+
 if HAS_COMPANIES and AuthViewSet is not None:
     # map POST /api/auth/add_hr/ directly to the add_hr action of AuthViewSet
     try:
@@ -55,11 +58,17 @@ if HAS_COMPANIES and AuthViewSet is not None:
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include(router.urls)),          # router-registered routes (e.g. /api/auth/)
+    path('api/', include(router.urls)),  # router-registered routes (e.g. /api/auth/)
+
     # keep your other app routes
     path('api/chat/', include('chat.urls')),
     path('api/users/', include('users.urls')),
-    path('', include(router.urls)),              # keep the router root for browsable api if desired
+
+    # NEW: tasks and notifications routes
+    path('api/tasks/', include('tasks.urls')),
+    path('api/notifications/', include('notifications.urls')),
+
+    path('', include(router.urls)),  # keep the router root for browsable api if desired
 ]
 
 # Add the explicit add_hr endpoint only if we were able to create it
@@ -69,7 +78,9 @@ if add_hr_view is not None:
     ]
 else:
     # if we couldn't construct the explicit view, log a warning so you can inspect the underlying import issues
-    logger.warning("AuthViewSet.add_hr explicit route was NOT created because AuthViewSet is unavailable.")
+    logger.warning(
+        "AuthViewSet.add_hr explicit route was NOT created because AuthViewSet is unavailable."
+    )
 
 # Serve media in debug
 if settings.DEBUG:

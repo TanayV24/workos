@@ -488,6 +488,106 @@ export const userRest = {
     }
   },
 };
+/* --------------------------- 
+✅ NOTIFICATIONS API (NEW)
+--------------------------- */
+export const notificationRest = {
+  async getNotifications(page = 1, pageSize = 20) {
+    const res = await fetch(`${API}/api/notifications/?page=${page}&page_size=${pageSize}`, {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to fetch notifications");
+    }
+    return res.json();
+  },
+
+  async getUnreadNotifications() {
+    const res = await fetch(`${API}/api/notifications/unread/`, {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) throw new Error("Failed to fetch unread notifications");
+    return res.json();
+  },
+
+  async getUnreadCount() {
+    const res = await fetch(`${API}/api/notifications/unread_count/`, {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) throw new Error("Failed to fetch unread count");
+    const data = await res.json();
+    return data.unread_count;
+  },
+
+  async markNotificationAsRead(notificationId: string) {
+    const res = await fetch(`${API}/api/notifications/${notificationId}/mark-read/`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to mark as read");
+    }
+    return res.json();
+  },
+
+  async markAllNotificationsAsRead() {
+    const res = await fetch(`${API}/api/notifications/mark-all-read/`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+    });
+    if (!res.ok) throw new Error("Failed to mark all as read");
+    return res.json();
+  },
+
+  async deleteNotification(notificationId: string) {
+    const res = await fetch(`${API}/api/notifications/${notificationId}/`, {
+      method: "DELETE",
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) throw new Error("Failed to delete notification");
+    return { success: true };
+  },
+};
+
+/* --------------------------- 
+✅ TASK INTEGRATION API (NEW) 
+--------------------------- */
+export const taskRest = {
+  async getTaskSettings() {
+    const res = await fetch(`${API}/api/tasks/settings/get/`, {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to fetch task settings");
+    }
+    return res.json();
+  },
+
+  async updateTaskSettings(settings: any) {
+    const res = await fetch(`${API}/api/tasks/settings/update/`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(settings),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to update task settings");
+    }
+    return res.json();
+  },
+
+  async getTasks() {
+    const res = await fetch(`${API}/api/tasks/`, {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) throw new Error("Failed to fetch tasks");
+    return res.json();
+  },
+};
+
 
 export default {
   authRest,
@@ -495,4 +595,6 @@ export default {
   chatRest,
   departmentRest,
   userRest,
+  notificationRest,  // ✅ ADD THIS
+  taskRest,  
 };

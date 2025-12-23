@@ -23,6 +23,8 @@ import Attendance from './pages/Attendance';
 import Settings from './pages/Settings';
 import ChatPage from './pages/ChatPage';
 import WhiteboardPage from './pages/Whiteboard';
+import NotificationsPage from '@/pages/NotificationsPage';
+import IntegrationPage from '@/pages/IntegrationPage';
 
 const queryClient = new QueryClient();
 
@@ -334,7 +336,24 @@ const AppContent: React.FC = () => {
           </ProtectedRoute>
         }
       />
-
+      {/*notification*/ }
+      <Route 
+        path="/notifications" 
+        element={
+          <ProtectedRoute>
+            <NotificationsPage />
+          </ProtectedRoute>
+        } 
+      />
+      {/*integration page */}
+      <Route 
+        path="/integration" 
+        element={
+          <ProtectedRoute>
+            <IntegrationPage />
+          </ProtectedRoute>
+        } 
+      />
       {/* CATCH ALL - REDIRECT TO HOME */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

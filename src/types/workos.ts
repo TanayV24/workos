@@ -127,3 +127,4 @@ export interface ChartData {
   value: number;
   [key: string]: string | number;
 }
+

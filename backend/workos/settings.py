@@ -71,7 +71,11 @@ INSTALLED_APPS = [
     # Local
     'companies.apps.CompaniesConfig',
     'users.apps.UsersConfig',
-    'chat.apps.ChatConfig'
+    'chat.apps.ChatConfig',
+
+    # New apps
+    'tasks.apps.TasksConfig',
+    'notifications.apps.NotificationsConfig'
 ]
 
 MIDDLEWARE = [
