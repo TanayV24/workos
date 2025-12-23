@@ -403,103 +403,230 @@ class UserViewSet(viewsets.ViewSet):
             )
 
 
-    
     @action(detail=False, methods=['post'], url_path='add_employee')
     def add_employee(self, request):
-        """Create new employee"""
+        """
+        ✅ Create new employee (works for Admin, HR, Manager)
+        
+        Accepts: name, email, phone, role, department, designation
+        """
         try:
+            print("\n" + "="*80)
+            print("➕ ADD EMPLOYEE")
+            print("="*80)
+            
+            # ========== GET REQUESTER'S INFO ==========
+            
+            user_role = 'unknown'
+            company_id = None
+            requester_name = 'Unknown'
+            
+            # Check if CompanyAdmin
             try:
-                company_admin = CompanyAdmin.objects.get(user=request.user)
-                company = company_admin.company
+                admin = CompanyAdmin.objects.get(user=request.user)
+                user_role = 'company_admin'
+                company_id = admin.company.id
+                requester_name = admin.full_name
+                print(f"✓ CompanyAdmin found: {requester_name}")
             except CompanyAdmin.DoesNotExist:
-                return Response({'success': False, 'error': 'Company admin not found'},
-                              status=status.HTTP_404_NOT_FOUND)
+                # Check if HR/Manager in users table ← THIS IS THE FIX
+                try:
+                    custom_user = User.objects.get(email=request.user.email)
+                    user_role = custom_user.role
+                    company_id = custom_user.company_id
+                    requester_name = custom_user.name
+                    print(f"✓ User found in users table: {requester_name} (role: {user_role})")
+                except User.DoesNotExist:
+                    print("❌ User not found in either table")
+                    return Response({
+                        'success': False,
+                        'error': 'User not found'
+                    }, status=status.HTTP_404_NOT_FOUND)
             
-            serializer = AddEmployeeSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response({'success': False, 'errors': serializer.errors},
-                              status=status.HTTP_400_BAD_REQUEST)
+            # ========== CHECK PERMISSION ==========
             
-            validated_data = serializer.validated_data
+            allowed_roles = ['company_admin', 'hr', 'manager']
+            if user_role not in allowed_roles:
+                print(f"❌ Permission denied for role: {user_role}")
+                return Response({
+                    'success': False,
+                    'error': f'Only {", ".join(allowed_roles)} can create employees'
+                }, status=status.HTTP_403_FORBIDDEN)
             
-            # Validate department
+            if not company_id:
+                print("❌ No company assigned")
+                return Response({
+                    'success': False,
+                    'error': 'No company assigned to user'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ========== VALIDATE INPUT ==========
+            
+            name = (request.data.get('name') or '').strip()
+            email = (request.data.get('email') or '').strip().lower()
+            phone = (request.data.get('phone') or '').strip()
+            role = (request.data.get('role') or 'employee').strip().lower()
+            department = (request.data.get('department') or '').strip()  # ← Accept department NAME
+            designation = (request.data.get('designation') or '').strip()
+            
+            print(f"\n📝 Input:")
+            print(f" Name: {name}")
+            print(f" Email: {email}")
+            print(f" Role: {role}")
+            print(f" Department: {department}")
+            print(f" Designation: {designation}")
+            
+            if not name or not email:
+                return Response({
+                    'success': False,
+                    'error': 'Name and email are required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if role not in ['employee', 'manager', 'hr']:
+                return Response({
+                    'success': False,
+                    'error': f'Invalid role. Use: employee, manager, hr'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ========== CHECK DUPLICATE ==========
+            
+            print(f"\n🔍 Checking duplicates...")
+            
+            if User.objects.filter(email=email).exists():
+                print(f"❌ Email already exists in users table")
+                return Response({
+                    'success': False,
+                    'error': f'Email {email} already exists'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if DjangoUser.objects.filter(username=email).exists():
+                print(f"❌ Email already exists in auth_user")
+                return Response({
+                    'success': False,
+                    'error': f'Email {email} already registered'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            print(f"✓ No duplicates found")
+            
+            # ========== GET DEPARTMENT ID FROM DEPARTMENT NAME ==========
+            
+            department_id = None
+            if department:
+                print(f"\n🔍 Looking for department: {department}")
+                try:
+                    # ← THIS IS THE FIX: Accept department name, lookup ID
+                    dept = Department.objects.get(name__iexact=department, company_id=company_id)
+                    department_id = dept.id
+                    print(f"✓ Department found: {dept.name} (ID: {department_id})")
+                except Department.DoesNotExist:
+                    print(f"❌ Department not found in company")
+                    return Response({
+                        'success': False,
+                        'error': f'Department "{department}" not found in your company'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ========== CREATE EMPLOYEE ==========
+            
             try:
-                department = Department.objects.get(
-                    id=validated_data['department_id'],
-                    company_id=company.id
-                )
-            except Department.DoesNotExist:
-                return Response({'success': False, 'error': 'Department not found'},
-                              status=status.HTTP_400_BAD_REQUEST)
-            
-            # Generate credentials
-            temp_password = secrets.token_urlsafe(12)
-            employee_id = str(uuid.uuid4())
-            
-            try:
+                temp_password = secrets.token_urlsafe(12)
+                employee_id = str(uuid.uuid4())
+                
+                print(f"\n📌 Creating employee...")
+                
                 with transaction.atomic():
-                    # Create Django auth_user
-                    django_user = DjangoUser.objects.create_user(
-                        username=validated_data['email'],
-                        email=validated_data['email'],
-                        first_name=validated_data['name'].split(),
-                        password=temp_password
-                    )
+                    # Create Django user
+                    # ← THIS IS THE FIX: Proper first_name/last_name assignment
+                    first_name = name.split()[0] if name.split() else 'Employee'
+                    last_name = ' '.join(name.split()[1:]) if len(name.split()) > 1 else ''
                     
-                    # Create users app User
+                    django_user = DjangoUser.objects.create_user(
+                        username=email,
+                        email=email,
+                        password=temp_password,
+                        first_name=first_name,
+                        last_name=last_name,
+                        date_joined=timezone.now()
+                    )
+                    print(f"✓ Django user created: {django_user.username}")
+                    
+                    # Create custom user
                     user_record = User.objects.create(
                         id=employee_id,
-                        email=validated_data['email'],
-                        name=validated_data['name'],
-                        role=validated_data['role'],
-                        company_id=company.id,
-                        department_id=validated_data['department_id'],
+                        email=email,
+                        name=name,
+                        phone=phone or None,
+                        role=role,
+                        company_id=company_id,
+                        department_id=department_id,
+                        designation=designation or None,
                         temp_password=True,
                         profile_completed=False,
-                        password_hash=django_user.password,
+                        is_active=True,
+                        status='active',
+                        employee_type='permanent',
                         created_at=timezone.now()
                     )
+                    print(f"✓ User record created: {user_record.email}")
                     
-                    # If team_lead, assign as head
-                    if validated_data['role'] == 'team_lead':
-                        department.head_id = django_user.id
-                        department.save()
+                    # If manager, optionally assign as department head
+                    if role == 'manager' and department_id:
+                        try:
+                            dept = Department.objects.get(id=department_id)
+                            dept.head_id = django_user.id
+                            dept.save()
+                            print(f"✓ Assigned as department head")
+                        except Exception as e:
+                            print(f"⚠️ Could not assign as head: {str(e)}")
                     
-                    # Send email
+                    # Send email (optional, don't break on failure)
                     try:
                         from django.core.mail import send_mail
                         send_mail(
-                            "WorkOS - Your Employee Account Created",
-                            f"Hello {validated_data['name']},\n\nEmail: {validated_data['email']}\nTemp Password: {temp_password}\n\nPlease login and change your password.",
+                            f"WorkOS - Account Created for {name}",
+                            f"Hello {name},\n\nYour employee account has been created.\n\nEmail: {email}\nTemp Password: {temp_password}\n\nPlease login and change your password immediately.\n\nBest regards,\nWorkOS Team",
                             'noreply@workos.com',
-                            [validated_data['email']],
+                            [email],
                             fail_silently=False,
                         )
-                    except:
-                        pass
+                        print(f"✓ Invitation email sent to {email}")
+                    except Exception as email_err:
+                        print(f"⚠️ Email failed: {str(email_err)}")
                     
-                    response_data = {
-                        'id': str(user_record.id),
-                        'name': user_record.name,
-                        'email': user_record.email,
-                        'role': user_record.role,
-                        'department_id': str(user_record.department_id),
-                        'department_name': department.name,
-                        'company_id': str(user_record.company_id),
-                    }
+                    print(f"\n✅ EMPLOYEE CREATED SUCCESSFULLY")
+                    print("="*80 + "\n")
                     
                     return Response({
                         'success': True,
-                        'message': f'Employee "{user_record.name}" created successfully',
-                        'data': response_data
+                        'message': f'Employee "{name}" created successfully',
+                        'data': {
+                            'id': str(user_record.id),
+                            'name': user_record.name,
+                            'email': user_record.email,
+                            'role': user_record.role,
+                            'department': department,
+                            'department_id': str(user_record.department_id) if user_record.department_id else None,
+                            'designation': designation,
+                            'company_id': str(company_id),
+                            'temp_password': temp_password[:8] + '...',
+                        }
                     }, status=status.HTTP_201_CREATED)
+            
             except Exception as e:
-                return Response({'success': False, 'error': str(e)},
-                              status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                print(f"❌ Error creating employee: {str(e)}")
+                logger.exception("Error creating employee: %s", e)
+                return Response({
+                    'success': False,
+                    'error': f'Failed to create employee: {str(e)}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         except Exception as e:
-            return Response({'success': False, 'error': str(e)},
-                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+            print(f"❌ Outer error: {str(e)}")
+            logger.exception("Add employee error: %s", e)
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+   
     @action(detail=False, methods=['get'], url_path='list_employees', permission_classes=[IsAuthenticated])
     def list_employees(self, request):
         """List employees based on user role"""

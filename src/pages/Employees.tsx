@@ -57,6 +57,8 @@ import {
   UserPlus,
   Briefcase,
   Users,
+  X, 
+  PlusCircle
 } from 'lucide-react';
 
 import {
@@ -66,7 +68,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { departmentRest, userRest } from '@/services/api';
+import { departmentRest, userRest, authRest } from '@/services/api';
 // ✅ RBAC IMPORTS
 import {
   getPageButtonVisibility,
@@ -121,6 +123,15 @@ const Employees: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { user } = useAuth(); // ✅ GET USER WITH ROLE
+
+
+  //
+  const [isAddHRManagerOpen, setIsAddHRManagerOpen] = useState(false);
+  const [hrManagerType, setHrManagerType] = useState<'hr' | 'manager'>('hr');
+  const [formData, setFormData] = useState({ name: '', email: '', role: "hr"});
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const token = localStorage.getItem('access_token') || '';
+
 
   // ✅ NORMALIZE ROLE AND GET VISIBILITY FLAGS
   const userRole = (user?.role as UserRole) || undefined;
@@ -363,7 +374,7 @@ const Employees: React.FC = () => {
         name: empForm.name.trim(),
         email: empForm.email.trim(),
         role: empForm.role as 'employee' | 'team_lead',
-        department_id: empForm.department,
+        department: empForm.department,
       });
 
       if (response.success) {
@@ -398,6 +409,83 @@ const Employees: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const handleAddHR = async () => {
+  setError(null);
+
+  const { name, email, role } = formData;
+
+  if (!name.trim() || !email.trim()) {
+    toast({
+      title: "Error",
+      description: "Name and email are required.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email.trim())) {
+    toast({
+      title: "Error",
+      description: "Please enter a valid email address.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  try {
+    setLoading(true);
+
+    let res;
+    if (role === "hr") {
+      // /api/auth/add_hr/ → backend forces role = 'hr'
+      res = await authRest.addHR(name.trim(), email.trim().toLowerCase());
+    } else {
+      // /api/auth/add_manager/ → send role = 'manager'
+      res = await authRest.addManager(
+        name.trim(),
+        email.trim().toLowerCase(),
+        "manager"
+      );
+    }
+
+    if ((res as any).success === false) {
+      throw new Error((res as any).error || "Failed to create user");
+    }
+
+    const createdRoleLabel = role === "hr" ? "HR" : "Manager";
+
+    setSuccessMessage(
+      `${createdRoleLabel} ${name} created. Check ${email} for login credentials.`
+    );
+
+    toast({
+      title: "Success",
+      description: `${createdRoleLabel} ${name} created. Invitation email sent.`,
+    });
+
+    // Reload employees list
+    await loadEmployees();
+
+    setTimeout(() => {
+      setIsAddHRModalOpen(false);
+      setFormData({ name: "", email: "", role: "hr" });
+      setSuccessMessage(null);
+    }, 1500);
+  } catch (err: any) {
+    const msg = err?.message || "Failed to create user";
+    setError(msg);
+    toast({
+      title: "Error",
+      description: msg,
+      variant: "destructive",
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // ✅ IF USER CANNOT ACCESS EMPLOYEES PAGE, SHOW NO ACCESS MESSAGE
   if (!canAccessEmployeesPage) {
@@ -970,28 +1058,109 @@ const Employees: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add HR/Manager Modal */}
+      {/* Add HR / Manager Modal */}
       <Dialog open={isAddHRModalOpen} onOpenChange={setIsAddHRModalOpen}>
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
-            <DialogTitle>Add HR/Manager</DialogTitle>
+            <DialogTitle>Add HR / Manager</DialogTitle>
           </DialogHeader>
-          <div className="py-4 text-sm text-muted-foreground">
-            Add your HR/Manager form fields here.
+
+          <div className="grid gap-4 py-4">
+            {/* Full Name */}
+            <div className="grid gap-2">
+              <Label htmlFor="hr-name">
+                Full Name <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="hr-name"
+                value={formData.name}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, name: e.target.value }))
+                }
+                placeholder="John Doe"
+              />
+            </div>
+
+            {/* Email */}
+            <div className="grid gap-2">
+              <Label htmlFor="hr-email">
+                Email <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="hr-email"
+                type="email"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    email: e.target.value.toLowerCase(),
+                  }))
+                }
+                placeholder="john@company.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                This email will be used for login and will receive the temporary
+                password.
+              </p>
+            </div>
+
+            {/* Role select (HR / Manager) */}
+            <div className="grid gap-2">
+              <Label htmlFor="hr-role">
+                Role <span className="text-red-500">*</span>
+              </Label>
+              <Select
+                value={formData.role}
+                onValueChange={(value) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    role: value as "hr" | "manager",
+                  }))
+                }
+              >
+                <SelectTrigger id="hr-role">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="hr">HR</SelectItem>
+                  <SelectItem value="manager">Manager</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Info */}
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              A temporary password will be generated and sent to this email address.
+            </div>
+
+            {/* Optional success message */}
+            {successMessage && (
+              <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                {successMessage}
+              </div>
+            )}
           </div>
+
           <div className="flex justify-end gap-3">
             <Button
               variant="outline"
-              onClick={() => setIsAddHRModalOpen(false)}
+              onClick={() => {
+                setIsAddHRModalOpen(false);
+                setFormData({ name: "", email: "", role: "hr" });
+                setSuccessMessage(null);
+                setError(null);
+              }}
+              disabled={loading}
             >
-              Close
+              Cancel
             </Button>
-            <Button onClick={() => setIsAddHRModalOpen(false)}>
-              Save (placeholder)
+            <Button variant="gradient" onClick={handleAddHR} disabled={loading}>
+              {loading ? "Creating..." : "Add User"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
 
       {/* Add Department Modal */}
       <Dialog

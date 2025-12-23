@@ -408,32 +408,37 @@ export const userRest = {
   async addEmployee(data: {
     name: string;
     email: string;
-    role: "employee" | "team_lead";
-    department_id: string;
+    phone?: string;
+    role?: 'employee' | 'team_lead';
+    department?: string;
+    designation?: string;
   }) {
     try {
-      console.log("📤 Sending employee data:", data);
+      console.log('📤 Sending employee data:', data);
+
       const res = await fetch(`${API}/api/users/add_employee/`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           ...authHeaders(),
         },
         body: JSON.stringify({
           name: data.name.trim(),
           email: data.email.trim().toLowerCase(),
-          role: data.role,
-          department_id: data.department_id,
+          phone: data.phone?.trim() || '',  // ← FIXED: Accept phone
+          role: data.role || 'employee',     // ← FIXED: Use new role values
+          department: data.department || '', // ← FIXED: Use department NAME, not ID
+          designation: data.designation || '',
         }),
       });
 
       const result = await res.json();
-      console.log("📨 Response:", result);
+      console.log('📨 Response:', result);
 
       if (!res.ok) {
         return {
           success: false,
-          error: result.error || "Failed to add employee",
+          error: result.error || 'Failed to add employee',
           errors: result.errors,
         };
       }
@@ -444,10 +449,10 @@ export const userRest = {
         error: result.error,
       };
     } catch (error: any) {
-      console.error("❌ Exception:", error);
+      console.error('❌ Exception:', error);
       return {
         success: false,
-        error: error.message || "Failed to add employee",
+        error: error.message || 'Failed to add employee',
       };
     }
   },

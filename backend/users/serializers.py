@@ -3,6 +3,8 @@ from .models import User
 from companies.models import Department
 from .models import User
 import re
+from django.contrib.auth.models import User as DjangoUser
+
 
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -42,28 +44,66 @@ class AddDepartmentSerializer(serializers.Serializer):
         return value.strip()
 
 class AddEmployeeSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=255, required=True)
-    email = serializers.EmailField(required=True)
-    role = serializers.ChoiceField(choices=['team_lead', 'employee'], required=True)
-    department_id = serializers.UUIDField(required=True)
+    """Serializer for adding new employee - FIXED VERSION"""
     
-    def validate_name(self, value):
-        if len(value.strip()) < 2:
-            raise serializers.ValidationError("Name must be at least 2 characters")
-        return value.strip()
+    name = serializers.CharField(
+        required=True,
+        min_length=1,
+        error_messages={'required': 'Name is required'}
+    )
+    email = serializers.EmailField(
+        required=True,
+        error_messages={'required': 'Email is required'}
+    )
+    phone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=''
+    )
+    role = serializers.ChoiceField(
+        choices=['employee', 'manager', 'hr'],  # ← FIXED: Changed from team_lead
+        default='employee'
+    )
+    department = serializers.CharField(  # ← FIXED: Changed from department_id
+        required=False,
+        allow_blank=True,
+        default='',
+        help_text='Department name (e.g., "IT", "HR", "Sales")'
+    )
+    designation = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default='',
+        help_text='Job designation (e.g., "Senior Developer", "Manager")'
+    )
     
     def validate_email(self, value):
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, value.strip().lower()):
-            raise serializers.ValidationError("Invalid email format")
-        return value.strip().lower()
+        """Validate email is not already in use"""
+        value = value.lower().strip()
+        
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email already exists in users table")
+        
+        if DjangoUser.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Email already registered in system")
+        
+        return value
     
-    def validate_department_id(self, value):
-        try:
-            Department.objects.get(id=value)
-            return value
-        except Department.DoesNotExist:
-            raise serializers.ValidationError("Department does not exist")
+    def validate_name(self, value):
+        """Validate name is not empty after stripping"""
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Name cannot be empty")
+        return value
+    
+    def validate(self, data):
+        """Additional validation"""
+        # Strip all string fields
+        for field in ['name', 'email', 'phone', 'department', 'designation']:
+            if field in data and isinstance(data[field], str):
+                data[field] = data[field].strip()
+        
+        return data
 
 class EmployeeProfileSerializer(serializers.ModelSerializer):
     class Meta:
