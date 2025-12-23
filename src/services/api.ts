@@ -492,6 +492,45 @@ export const userRest = {
       };
     }
   },
+
+  async deleteEmployee(employeeId: string) {
+    try {
+        console.log('🗑️ Deleting employee:', employeeId);
+        
+        const res = await fetch(`${API}/api/users/delete_employee/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders(),
+            },
+            body: JSON.stringify({
+                employee_id: employeeId,
+            }),
+        });
+        
+        const result = await res.json();
+        console.log('📨 Delete Response:', result);
+        
+        if (!res.ok) {
+            return {
+                success: false,
+                error: result.error || 'Failed to delete employee',
+            };
+        }
+        
+        return {
+            success: result.success !== false,
+            data: result.data || result,
+            error: result.error,
+        };
+    } catch (error: any) {
+        console.error('❌ Exception:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to delete employee',
+        };
+    }
+  },
 };
 /* --------------------------- 
 ✅ NOTIFICATIONS API (NEW)

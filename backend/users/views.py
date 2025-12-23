@@ -482,7 +482,7 @@ class UserViewSet(viewsets.ViewSet):
                     'error': 'Name and email are required'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            if role not in ['employee', 'manager', 'hr']:
+            if role not in ['employee', 'manager', 'hr', 'team_lead']:  # ← FIXED: Changed from team_lead
                 return Response({
                     'success': False,
                     'error': f'Invalid role. Use: employee, manager, hr'
@@ -491,7 +491,7 @@ class UserViewSet(viewsets.ViewSet):
             # ========== CHECK DUPLICATE ==========
             
             print(f"\n🔍 Checking duplicates...")
-            
+
             if User.objects.filter(email=email).exists():
                 print(f"❌ Email already exists in users table")
                 return Response({
@@ -558,7 +558,6 @@ class UserViewSet(viewsets.ViewSet):
                         role=role,
                         company_id=company_id,
                         department_id=department_id,
-                        designation=designation or None,
                         temp_password=True,
                         profile_completed=False,
                         is_active=True,
@@ -577,6 +576,17 @@ class UserViewSet(viewsets.ViewSet):
                             print(f"✓ Assigned as department head")
                         except Exception as e:
                             print(f"⚠️ Could not assign as head: {str(e)}")
+
+
+                    if role == 'team_lead' and department_id:
+                        try:
+                            dept = Department.objects.get(id=department_id)
+                            dept.head_id = user_record.id  # ✅ Links to public.user
+                            dept.save()
+                            print(f"✓ Assigned team_lead as department head")
+                        except Exception as e:
+                            print(f"⚠️ Could not assign as head: {str(e)}")
+
                     
                     # Send email (optional, don't break on failure)
                     try:
@@ -718,3 +728,176 @@ class UserViewSet(viewsets.ViewSet):
                 {'success': False, 'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated], url_path='delete_employee')
+    def delete_employee(self, request):
+        """
+        ✅ DELETE EMPLOYEE - Hard delete from both tables
+        
+        Permissions:
+        - Company Admin: Can delete ANY employee
+        - HR: Can delete ANY employee EXCEPT themselves
+        - Manager/Team_lead/Employee: Cannot delete
+        
+        Deletes from:
+        1. public."user" (custom user)
+        2. public.auth_user (Django user)
+        3. Cleans up if employee is department head
+        """
+        
+        try:
+            print("\n" + "="*80)
+            print("🗑️ DELETE EMPLOYEE")
+            print("="*80)
+            
+            # ========== GET REQUESTER INFO ==========
+            
+            requester_role = 'unknown'
+            requester_email = request.user.email
+            
+            # Check if CompanyAdmin
+            try:
+                admin = CompanyAdmin.objects.get(user=request.user)
+                requester_role = 'company_admin'
+                company_id = admin.company.id
+                print(f"✓ Requester: CompanyAdmin ({admin.full_name})")
+            except CompanyAdmin.DoesNotExist:
+                # Check if HR in users table
+                try:
+                    custom_user = User.objects.get(email=requester_email)
+                    requester_role = custom_user.role
+                    company_id = custom_user.company_id
+                    print(f"✓ Requester: {requester_role} ({custom_user.name})")
+                except User.DoesNotExist:
+                    print("❌ Requester not found")
+                    return Response({
+                        'success': False,
+                        'error': 'User not found'
+                    }, status=status.HTTP_404_NOT_FOUND)
+            
+            # ========== CHECK PERMISSION ==========
+            
+            allowed_roles = ['company_admin', 'hr']
+            if requester_role not in allowed_roles:
+                print(f"❌ Permission denied for role: {requester_role}")
+                return Response({
+                    'success': False,
+                    'error': f'Only company admin and HR can delete employees'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # ========== GET EMPLOYEE TO DELETE ==========
+            
+            employee_id = request.data.get('employee_id')
+            if not employee_id:
+                return Response({
+                    'success': False,
+                    'error': 'employee_id is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            print(f"\n🔍 Looking for employee: {employee_id}")
+            
+            try:
+                employee = User.objects.get(id=employee_id)
+            except User.DoesNotExist:
+                print(f"❌ Employee not found")
+                return Response({
+                    'success': False,
+                    'error': 'Employee not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            print(f"✓ Employee found: {employee.name} ({employee.email})")
+            
+            # ========== PREVENT SELF-DELETION (HR only) ==========
+            
+            if requester_role == 'hr' and employee.email == requester_email:
+                print(f"❌ HR cannot delete themselves")
+                return Response({
+                    'success': False,
+                    'error': 'You cannot delete your own account'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ========== COMPANY CHECK ==========
+            
+            if employee.company_id != company_id:
+                print(f"❌ Employee belongs to different company")
+                return Response({
+                    'success': False,
+                    'error': 'Cannot delete employee from another company'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # ========== CLEANUP DEPARTMENT HEAD ==========
+            
+            print(f"\n🔍 Checking if employee is department head...")
+            
+            from django.db.models import Q
+            from companies.models import Department  # ✅ CORRECT
+            
+            try:
+                departments = Department.objects.filter(head_id=employee_id)
+                if departments.exists():
+                    print(f"✓ Found {departments.count()} department(s) where this employee is head")
+                    for dept in departments:
+                        print(f"  - {dept.name}: Setting head_id to NULL")
+                        dept.head_id = None
+                        dept.save()
+            except Exception as e:
+                print(f"⚠️ Could not cleanup department heads: {str(e)}")
+            
+            # ========== DELETE EMPLOYEE ==========
+            
+            employee_name = employee.name
+            employee_email = employee.email
+            
+            try:
+                with transaction.atomic():
+                    # Get Django user before deleting
+                    try:
+                        django_user = DjangoUser.objects.get(username=employee_email)
+                        django_user_id = django_user.id
+                    except DjangoUser.DoesNotExist:
+                        django_user_id = None
+                        print(f"⚠️ Django user not found for {employee_email}")
+                    
+                    # Delete from public."user"
+                    print(f"\n📌 Deleting from public.\"user\"...")
+                    deleted_count, _ = User.objects.filter(id=employee_id).delete()
+                    print(f"✓ Deleted {deleted_count} record(s) from public.user")
+                    
+                    # Delete from public.auth_user
+                    if django_user_id:
+                        print(f"\n📌 Deleting from public.auth_user...")
+                        auth_deleted_count, _ = DjangoUser.objects.filter(id=django_user_id).delete()
+                        print(f"✓ Deleted {auth_deleted_count} record(s) from auth_user")
+                    
+                    print(f"\n✅ EMPLOYEE DELETED SUCCESSFULLY")
+                    print(f"Name: {employee_name}")
+                    print(f"Email: {employee_email}")
+                    print("="*80 + "\n")
+                    
+                    return Response({
+                        'success': True,
+                        'message': f'Employee "{employee_name}" deleted successfully',
+                        'data': {
+                            'deleted_id': str(employee_id),
+                            'deleted_name': employee_name,
+                            'deleted_email': employee_email
+                        }
+                    }, status=status.HTTP_200_OK)
+            
+            except Exception as e:
+                print(f"❌ Error during deletion: {str(e)}")
+                logger.exception("Error deleting employee: %s", e)
+                return Response({
+                    'success': False,
+                    'error': f'Failed to delete employee: {str(e)}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        except Exception as e:
+            print(f"❌ Outer error: {str(e)}")
+            logger.exception("Delete employee error: %s", e)
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

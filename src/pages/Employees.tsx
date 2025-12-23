@@ -132,6 +132,14 @@ const Employees: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const token = localStorage.getItem('access_token') || '';
 
+  // ✅ DELETE MODAL STATE
+  const [deleteModal, setDeleteModal] = useState({
+      isOpen: false,
+      employeeId: '',
+      employeeName: '',
+      employeeEmail: '',
+      isDeleting: false,
+  });
 
   // ✅ NORMALIZE ROLE AND GET VISIBILITY FLAGS
   const userRole = (user?.role as UserRole) || undefined;
@@ -214,8 +222,6 @@ const Employees: React.FC = () => {
     setEmployees([]);
   }
 };
-
-
 
   // ✅ APPLY ROLE‑BASED DATA VISIBILITY FIRST
   const employeesForRole = useMemo(
@@ -491,6 +497,68 @@ const Employees: React.FC = () => {
   }
 };
 
+  // ✅ DELETE HANDLERS
+  const handleDeleteClick = (employee: any) => {
+    setDeleteModal({
+        isOpen: true,
+        employeeId: employee.id,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+        isDeleting: false,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleteModal(prev => ({ ...prev, isDeleting: true }));
+    
+    try {
+        const result = await userRest.deleteEmployee(deleteModal.employeeId);
+        
+        if (result.success) {
+            toast({
+                title: 'Success',
+                description: `Employee "${deleteModal.employeeName}" deleted successfully`,
+            });
+            setDeleteModal({ isOpen: false, employeeId: '', employeeName: '', employeeEmail: '', isDeleting: false });
+            // Refresh employee list
+            await loadEmployees();
+        } else {
+            toast({
+                title: 'Error',
+                description: result.error || 'Failed to delete employee',
+                variant: 'destructive',
+            });
+            setDeleteModal(prev => ({ ...prev, isDeleting: false }));
+        }
+    } catch (error: any) {
+        toast({
+            title: 'Error',
+            description: error.message || 'Failed to delete employee',
+            variant: 'destructive',
+        });
+        setDeleteModal(prev => ({ ...prev, isDeleting: false }));
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteModal({ isOpen: false, employeeId: '', employeeName: '', employeeEmail: '', isDeleting: false });
+  };
+
+  // ✅ CHECK IF USER CAN DELETE EMPLOYEE
+  const canDeleteThisEmployee = (employee: any) => {
+    if (!user) return false;
+    
+    // Admin can delete anyone
+    if (user.role === 'company_admin') return true;
+    
+    // HR can delete anyone except themselves
+    if (user.role === 'hr') {
+      return employee.email !== user.email;
+    }
+    
+    // Manager, Team_lead, Employee cannot delete
+    return false;
+  };
 
   // ✅ IF USER CANNOT ACCESS EMPLOYEES PAGE, SHOW NO ACCESS MESSAGE
   if (!canAccessEmployeesPage) {
@@ -566,7 +634,7 @@ const Employees: React.FC = () => {
               {showAddEmployee && (
                 <Button
                   onClick={() => setIsAddEmployeeModalOpen(true)}
-                  className="gap-2 bg-gradient-to-r from-blue-500 to-blue-600..."
+                  className="gap-2 bg-gradient-to-r from-blue-500 to-blue-600"
                 >
                   <Plus className="h-4 w-4" />
                   Add Employee
@@ -576,7 +644,7 @@ const Employees: React.FC = () => {
               {showAddManager && (
                 <Button
                   onClick={() => setIsAddHRModalOpen(true)}
-                  className="gap-2 bg-gradient-to-r from-purple-500 to-purple-600..."
+                  className="gap-2 bg-gradient-to-r from-purple-500 to-purple-600"
                 >
                   <UserPlus className="h-4 w-4" />
                   Add HR/Manager
@@ -643,16 +711,20 @@ const Employees: React.FC = () => {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredEmployees.map((employee: Employee, index) => (
-                          <motion.div
-                            key={employee.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.05 }}
+                          <motion.div key={employee.id}>
+                          {/* ✅ HIGHLIGHT CURRENT USER */}
+                          {user && employee.email === user.email && (
+                            <div className="mb-2 px-2">                              
+                            </div>
+                          )}                          
+                          <Card 
+                            variant="glass"
+                            className={`group hover:border-primary/30 transition-all ${
+                              user && employee.email === user.email 
+                                ? 'border-2 border-primary bg-gradient-to-br from-primary/10 to-primary/5' 
+                                : ''
+                            }`}
                           >
-                            <Card
-                              variant="glass"
-                              className="group hover:border-primary/30 transition-all"
-                            >
                               <CardContent className="p-6">
                                 <div className="flex items-start justify-between mb-4">
                                   <div className="flex items-center gap-4">
@@ -699,8 +771,11 @@ const Employees: React.FC = () => {
                                               Edit
                                             </DropdownMenuItem>
                                           )}
-                                          {showDeleteButton && (
-                                            <DropdownMenuItem className="text-destructive">
+                                          {canDeleteThisEmployee(employee) && (
+                                            <DropdownMenuItem 
+                                              className="text-destructive cursor-pointer"
+                                              onClick={() => handleDeleteClick(employee)}
+                                            >
                                               <Trash2 className="h-4 w-4 mr-2" />{' '}
                                               Delete
                                             </DropdownMenuItem>
@@ -934,12 +1009,13 @@ const Employees: React.FC = () => {
                                             <Edit className="h-4 w-4" />
                                           </Button>
                                         )}
-                                        {showDeleteButton && (
+                                        {canDeleteThisEmployee(employee) && (
                                           <Button
                                             variant="ghost"
                                             size="icon"
+                                            onClick={() => handleDeleteClick(employee)}
                                           >
-                                            <Trash2 className="h-4 w-4" />
+                                            <Trash2 className="h-4 w-4 text-destructive" />
                                           </Button>
                                         )}
                                       </div>
@@ -959,8 +1035,6 @@ const Employees: React.FC = () => {
           </AnimatePresence>
         </Tabs>
       </div>
-
-      {/* MODALS */}
 
       {/* Add Employee Modal */}
       <Dialog
@@ -1020,7 +1094,7 @@ const Employees: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
+                      <SelectItem key={dept.id} value={dept.name}>
                         {dept.name} ({dept.code})
                       </SelectItem>
                     ))}
@@ -1167,7 +1241,6 @@ const Employees: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-
       {/* Add Department Modal */}
       <Dialog
         open={isAddDepartmentModalOpen}
@@ -1267,6 +1340,68 @@ const Employees: React.FC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ✅ DELETE CONFIRMATION MODAL */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-lg shadow-lg max-w-md w-96 border border-border">
+            {/* Header */}
+            <div className="flex justify-between items-center p-6 border-b border-border">
+              <h2 className="text-lg font-semibold text-destructive">Delete Employee?</h2>
+              <button 
+                onClick={handleCancelDelete}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              <p className="text-sm font-medium text-destructive">
+                ⚠️ You're about to permanently delete this employee:
+              </p>
+              
+              <div className="bg-secondary p-3 rounded-lg space-y-2">
+                <p className="text-sm">
+                  <strong>Name:</strong> {deleteModal.employeeName}
+                </p>
+                <p className="text-sm">
+                  <strong>Email:</strong> {deleteModal.employeeEmail}
+                </p>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                This action <strong>cannot be undone</strong>. The employee will be removed from:
+              </p>
+
+              <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Employee list</li>
+                <li>Department assignments</li>
+                <li>User database</li>
+              </ul>
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-3 justify-end p-6 border-t border-border">
+              <Button
+                variant="outline"
+                onClick={handleCancelDelete}
+                disabled={deleteModal.isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+                disabled={deleteModal.isDeleting}
+              >
+                {deleteModal.isDeleting ? 'Deleting...' : '🗑️ Delete'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };
