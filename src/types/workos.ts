@@ -57,17 +57,30 @@ export interface LeaveRequest {
 export interface Task {
   id: string;
   title: string;
-  description: string;
-  status: 'todo' | 'in-progress' | 'review' | 'done';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  assignee: string;
-  assigneeName: string;
-  assigneeAvatar?: string;
-  dueDate: string;
-  createdAt: string;
-  tags: string[];
-  comments?: TaskComment[];
-  attachments?: string[];
+  description?: string;
+  status: "pending" | "in_progress" | "under_review" | "completed";
+  priority: "low" | "medium" | "high" | "urgent";
+  assigned_to: string;
+  assigned_by?: string;
+  assigned_to_id?: string; // User ID
+  assignee_name?: string; // User's full name
+  due_date?: string;
+  start_date?: string;
+  estimated_hours?: number;
+  actual_hours?: number;
+  progress_percentage?: number;
+  category?: string;
+  tags?: string[];
+  attachments?: any[];
+  comments?: any[];
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+  is_cross_department?: boolean;
+  assigned_department_id?: string;
+  is_redirected_to_team_lead?: boolean;
+  team_lead_id?: string;
+  team_lead_approval_pending?: boolean;
 }
 
 export interface TaskComment {
