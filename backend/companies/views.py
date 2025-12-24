@@ -839,6 +839,7 @@ class AuthViewSet(viewsets.ViewSet):
             email = (request.data.get('email') or "").strip().lower()
             role = (request.data.get('role') or "").strip().lower()
 
+            print("RAW BODY:", request.data)
             print(f"\n📝 Input: name='{name}', email='{email}', role='{role}'")
 
             # Validation

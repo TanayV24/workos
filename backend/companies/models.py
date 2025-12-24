@@ -4,6 +4,7 @@ from django.db import models
 from django.core.validators import URLValidator
 import uuid
 from django.contrib.auth.models import User
+from users.models import User as CustomUser   
 from datetime import timedelta
 from django.utils import timezone
 
@@ -248,7 +249,7 @@ class Department(models.Model):
 
     # Relations
     company = models.ForeignKey('Company', on_delete=models.CASCADE, related_name='departments')
-    head = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='department_head_of', help_text="Department head/manager", to_field='id')
+    head = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='department_head_of', help_text="Department head/manager", to_field='id')
 
     # Basic Information
     name = models.CharField(max_length=100, help_text="e.g., HR, Frontend, Backend, Surgery, Cardiology, etc.")
