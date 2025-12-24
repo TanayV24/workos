@@ -834,13 +834,11 @@ class UserViewSet(viewsets.ViewSet):
             from companies.models import Department  # ✅ CORRECT
             
             try:
-                departments = Department.objects.filter(head_id=employee_id)
-                if departments.exists():
-                    print(f"✓ Found {departments.count()} department(s) where this employee is head")
-                    for dept in departments:
-                        print(f"  - {dept.name}: Setting head_id to NULL")
-                        dept.head_id = None
-                        dept.save()
+                # Use update() instead of save() - avoids cascade delete issues
+                updated_count = Department.objects.filter(head_id=employee_id).update(head_id=None)
+                if updated_count > 0:
+                    print(f"✓ Updated {updated_count} department(s): head_id set to NULL")
+
             except Exception as e:
                 print(f"⚠️ Could not cleanup department heads: {str(e)}")
             
